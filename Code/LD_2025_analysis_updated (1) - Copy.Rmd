@@ -16,275 +16,342 @@ knitr::opts_chunk$set(
   warning = FALSE,
   fig.align = "center"
 )
+```
 
+## Overview
+
+This notebook ingests the processed LD 2025 ABET exports, prepares a tidy analysis
+dataset with one row per animal × session day × task phase, and fits the
+mixed-effects models requested for accuracy and latency outcomes.  The workflow
+covers data preparation, model fitting, nested model comparisons, estimated
+marginal means, and visualisation of the fitted trajectories and genotype
+contrasts.
+
+## Libraries
+
+```{r}
 library(tidyverse)
-library(readxl)
 library(janitor)
+library(lubridate)
 library(stringr)
-library(gt)
-library(FactoMineR)
-library(factoextra)
-library(survival)
-library(survminer)
-library(broom)
+library(here)
+library(lme4)
+library(emmeans)
+library(ggeffects)
 ```
 
-# Data ingestion and cleaning
+## Data import and cleaning
 
-```{r load-data}
-raw_data <- read_excel(
-  file.path("..", "Processed Data", "LDR 2025 data1_processed_withSecondCriterion.xlsx")
-) %>%
-  clean_names()
+The code below loads the two "All_processed" exports contained in the
+`Processed Data/` directory and reshapes them into an analysis-ready table.
 
-trial_cols <- str_subset(names(raw_data), "^trial_analysis_no_correct_\\d+")
-stopifnot(length(trial_cols) > 0)
+```{r}
+data_paths <- list.files(
+  path   = here::here("Processed Data"),
+  pattern = "All_processed\\.csv$",
+  full.names = TRUE
+)
 
-total_trials <- length(trial_cols)
+data_paths
 ```
 
-The processed export includes one row per animal-day with trial-level summaries. The helper code below derives cohort identifiers ("c1" … "c4") from the animal IDs and recodes strain symbols to human-readable labels.
-
-```{r feature-engineering}
-scale_within <- function(x) {
-  if (all(is.na(x)) || sum(!is.na(x)) < 2 || sd(x, na.rm = TRUE) == 0) {
-    return(rep(0, length(x)))
+```{r}
+load_ld_data <- function(path) {
+  raw <- readr::read_csv(path, na = c("", "NA"), guess_max = 10000) |> 
+    clean_names()
+  
+  metric_cols <- list(
+    correct           = grep("^trial_analysis_no_correct_\\d+$", names(raw), value = TRUE),
+    correct_latency   = grep("^trial_analysis_correct_image_response_latency_\\d+$", names(raw), value = TRUE),
+    incorrect_latency = grep("^trial_analysis_incorrect_image_latency_\\d+$", names(raw), value = TRUE),
+    reward_latency    = grep("^trial_analysis_reward_collection_latency_\\d+$", names(raw), value = TRUE)
+  )
+  numeric_cols <- unique(unlist(metric_cols))
+  if (length(numeric_cols) > 0) {
+    raw <- raw |> mutate(across(all_of(numeric_cols), readr::parse_number))
   }
-  as.numeric(scale(x))
+  
+  n <- nrow(raw)
+  n_correct <- if (length(metric_cols$correct) > 0) {
+    rowSums(select(raw, all_of(metric_cols$correct)), na.rm = TRUE)
+  } else {
+    rep(NA_real_, n)
+  }
+  correct_latency <- if (length(metric_cols$correct_latency) > 0) {
+    rowMeans(select(raw, all_of(metric_cols$correct_latency)), na.rm = TRUE)
+  } else {
+    rep(NA_real_, n)
+  }
+  incorrect_latency <- if (length(metric_cols$incorrect_latency) > 0) {
+    rowMeans(select(raw, all_of(metric_cols$incorrect_latency)), na.rm = TRUE)
+  } else {
+    rep(NA_real_, n)
+  }
+  reward_latency <- if (length(metric_cols$reward_latency) > 0) {
+    rowMeans(select(raw, all_of(metric_cols$reward_latency)), na.rm = TRUE)
+  } else {
+    rep(NA_real_, n)
+  }
+  
+  summarised <- raw |> 
+    transmute(
+      source_file   = basename(path),
+      schedule_name = schedule_name,
+      animal_id_raw = as.character(animal_id),
+      cohort = case_when(
+        str_detect(animal_id_raw, "^c\\d+")       ~ str_extract(animal_id_raw, "^c\\d+"),
+        str_detect(animal_id_raw, "^\\d")          ~ str_c("cohort_", str_sub(animal_id_raw, 1, 1)),
+        TRUE                                         ~ NA_character_
+      ),
+      genotype = case_match(genotype,
+        "+" ~ "B6",
+        "-" ~ "C3HxB6",
+        .default = NA_character_
+      ),
+      session_date = suppressWarnings(mdy(schedule_run_date)),
+      session_day  = readr::parse_double(day),
+      n_trials     = readr::parse_double(end_summary_trials_completed_1),
+      percent_correct_recorded = readr::parse_double(end_summary_percentage_correct_1),
+      n_correct    = n_correct,
+      correct_latency_mean   = correct_latency,
+      incorrect_latency_mean = incorrect_latency,
+      reward_latency_mean    = reward_latency
+    ) |> 
+    mutate(
+      animal_id = factor(animal_id_raw),
+      cohort    = factor(cohort),
+      genotype  = factor(genotype, levels = c("B6", "C3HxB6")),
+      n_correct = if_else(!is.na(n_correct) & !is.na(n_trials), pmin(n_correct, n_trials), n_correct),
+      n_incorrect_raw = if_else(!is.na(n_trials) & !is.na(n_correct), n_trials - n_correct, NA_real_),
+      task_phase = case_when(
+        str_detect(schedule_name, "Initial Touch")                    ~ "Initial Touch",
+        str_detect(schedule_name, "Pairwise Must Touch")              ~ "Pairwise Must Touch",
+        str_detect(schedule_name, "Must Touch")                       ~ "Must Touch",
+        str_detect(schedule_name, "Pairwise Punish Incorrect")        ~ "Pairwise Punish Incorrect",
+        str_detect(schedule_name, "Punish Incorrect")                 ~ "Punish Incorrect",
+        str_detect(schedule_name, "1 choice reversal")                ~ "1-Choice Reversal",
+        str_detect(schedule_name, "1 choice")                         ~ "1-Choice",
+        str_detect(schedule_name, "Pairwise Discrimination v3 - Reversal") ~ "Pairwise Reversal",
+        str_detect(schedule_name, "Pairwise Discrimination")          ~ "Pairwise Discrimination",
+        TRUE                                                           ~ schedule_name
+      ),
+      task_phase = factor(task_phase,
+        levels = c(
+          "Initial Touch", "Must Touch", "Punish Incorrect", "1-Choice", "1-Choice Reversal",
+          "Pairwise Must Touch", "Pairwise Punish Incorrect", "Pairwise Discrimination", "Pairwise Reversal"
+        )
+      ),
+      n_incorrect = if_else(!is.na(n_incorrect_raw), pmax(n_incorrect_raw, 0), NA_real_),
+      proportion_correct = if_else(!is.na(n_trials) & n_trials > 0 & !is.na(n_correct), n_correct / n_trials, NA_real_),
+      percent_correct = proportion_correct * 100,
+      accuracy_success = if_else(!is.na(percent_correct), as.integer(percent_correct >= 80), NA_integer_)
+    ) |> 
+    select(-animal_id_raw, -n_incorrect_raw, -percent_correct_recorded)
+  
+  summarised
 }
+```
 
-session_features <- raw_data %>%
+```{r}
+analysis_data <- purrr::map_dfr(data_paths, load_ld_data) |> 
+  mutate(day_centered = session_day - mean(session_day, na.rm = TRUE))
+
+analysis_data |> 
+  select(source_file, animal_id, cohort, genotype, session_day, day_centered,
+         task_phase, n_trials, n_correct, n_incorrect, percent_correct,
+         correct_latency_mean, incorrect_latency_mean, reward_latency_mean) |> 
+  slice_head(n = 6)
+```
+
+The table above confirms that each row now corresponds to a unique animal-day-task
+combination containing accuracy counts, the derived percent correct, a binary
+success flag, and the mean latencies derived from the per-trial exports.
+
+```{r}
+analysis_data |> 
+  filter(!is.na(genotype), !is.na(cohort), !is.na(task_phase)) |> 
+  count(task_phase, genotype, cohort, name = "sessions") |> 
+  arrange(task_phase, cohort, genotype)
+```
+
+## Accuracy model (`glmer`)
+
+```{r}
+acc_data <- analysis_data |> 
+  filter(
+    !is.na(genotype),
+    !is.na(cohort),
+    !is.na(task_phase),
+    !is.na(day_centered),
+    !is.na(n_correct),
+    !is.na(n_incorrect),
+    !is.na(n_trials),
+    n_trials > 0
+  ) |> 
   mutate(
-    cohort = str_extract(animal_id, "^c\\d+"),
-    strain = recode(strain, "+" = "B6", "-" = "C3HxB6"),
-    sex = factor(sex, levels = c("M", "F")),
-    day = as.integer(day),
-    trials_completed = end_summary_trials_completed_1,
-    omissions = total_trials - trials_completed,
-    omission_rate = omissions / total_trials,
-    iti_touch_asym = end_summary_left_iti_touches_1 - end_summary_right_iti_touches_1,
-    reward_collection_latency = correct_reward_collection
-  ) %>%
-  select(
-    animal_id, cohort, strain, sex, day, schedule_run_date, second_criterion_count,
-    trials_completed, omissions, omission_rate, iti_touch_asym,
-    correct_touch_latency, reward_collection_latency, blank_touch_latency
+    n_correct   = round(n_correct),
+    n_incorrect = round(pmax(n_incorrect, 0))
   )
 
-animal_features <- session_features %>%
-  group_by(animal_id, cohort, strain, sex) %>%
-  summarise(
-    days_observed = max(day, na.rm = TRUE),
-    omission_rate_mean = mean(omission_rate, na.rm = TRUE),
-    omission_rate_sd = sd(omission_rate, na.rm = TRUE),
-    iti_touch_asym_mean = mean(iti_touch_asym, na.rm = TRUE),
-    iti_touch_asym_sd = sd(iti_touch_asym, na.rm = TRUE),
-    touch_latency_mean = mean(correct_touch_latency, na.rm = TRUE),
-    touch_latency_iqr = IQR(correct_touch_latency, na.rm = TRUE),
-    reward_latency_mean = mean(reward_collection_latency, na.rm = TRUE),
-    reward_latency_iqr = IQR(reward_collection_latency, na.rm = TRUE),
-    blank_latency_mean = mean(blank_touch_latency, na.rm = TRUE),
-    event = any(second_criterion_count > 0, na.rm = TRUE),
-    first_criterion_day = ifelse(
-      any(second_criterion_count > 0, na.rm = TRUE),
-      min(day[second_criterion_count > 0], na.rm = TRUE),
-      NA_real_
+mean_day <- mean(acc_data$session_day, na.rm = TRUE)
+day_range <- range(acc_data$day_centered, na.rm = TRUE)
+day_term  <- sprintf("day_centered [%s:%s by=1]", floor(day_range[1]), ceiling(day_range[2]))
+
+acc_model_full <- glmer(
+  cbind(n_correct, n_incorrect) ~ genotype * day_centered + genotype * task_phase + cohort + (1 | animal_id),
+  data    = acc_data,
+  family  = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+
+acc_model_nogeno <- glmer(
+  cbind(n_correct, n_incorrect) ~ day_centered + task_phase + cohort + (1 | animal_id),
+  data    = acc_data,
+  family  = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+
+anova(acc_model_nogeno, acc_model_full, test = "Chisq")
+```
+
+```{r}
+emmeans_acc <- emmeans(acc_model_full, ~ genotype | task_phase, type = "response")
+emmeans_acc
+```
+
+```{r}
+contrast(emmeans_acc, method = "revpairwise")
+```
+
+## Latency models (`lmer`)
+
+The latency metrics are analysed in a long format so that the same mixed-effects
+structure can be fit to each outcome (log-transformed to stabilise variance).
+
+```{r}
+latency_long <- analysis_data |> 
+  filter(!is.na(genotype), !is.na(cohort), !is.na(task_phase), !is.na(day_centered)) |> 
+  select(animal_id, cohort, genotype, session_day, day_centered, task_phase,
+         correct_latency_mean, incorrect_latency_mean, reward_latency_mean) |> 
+  pivot_longer(
+    cols = ends_with("_mean"),
+    names_to = "metric",
+    values_to = "latency"
+  ) |> 
+  filter(!is.na(latency), latency > 0) |> 
+  mutate(
+    metric = recode(metric,
+      correct_latency_mean   = "Correct image latency",
+      incorrect_latency_mean = "Incorrect image latency",
+      reward_latency_mean    = "Reward collection latency"
     ),
-    .groups = "drop"
-  ) %>%
+    log_latency = log(latency)
+  )
+
+latency_models <- latency_long |> 
+  group_split(metric)
+names(latency_models) <- latency_long |> distinct(metric) |> pull()
+
+latency_results <- purrr::imap(latency_models, ~{
+  list(
+    data   = .x,
+    full   = lmer(log_latency ~ genotype * day_centered + genotype * task_phase + cohort + (1 | animal_id),
+                  data = .x, REML = FALSE),
+    nogeno = lmer(log_latency ~ day_centered + task_phase + cohort + (1 | animal_id),
+                  data = .x, REML = FALSE)
+  )
+})
+
+purrr::imap(latency_results, ~{
+  cat("\n\nLikelihood-ratio test for", .y, "\n")
+  print(anova(.x$nogeno, .x$full))
+})
+```
+
+```{r}
+latency_emmeans <- purrr::imap(latency_results, ~{
+  em <- emmeans(.x$full, ~ genotype | task_phase)
+  summary(em) |> 
+    mutate(
+      metric        = .y,
+      latency       = exp(emmean),
+      latency.lower = exp(lower.CL),
+      latency.upper = exp(upper.CL)
+    )
+})
+
+latency_emmeans
+```
+
+## Visualising fitted trajectories
+
+Predicted trajectories and genotype contrasts are extracted with `ggpredict`
+from each model, converted back to the original time scale (days for accuracy
+and seconds for the latency outcomes), and visualised below.
+
+```{r}
+acc_predictions <- ggpredict(
+  acc_model_full,
+  terms = c(day_term, "genotype", "task_phase")
+) |> 
+  as_tibble() |> 
   mutate(
-    omission_rate_sd = replace_na(omission_rate_sd, 0),
-    iti_touch_asym_sd = replace_na(iti_touch_asym_sd, 0),
-    time_to_criterion = if_else(is.na(first_criterion_day), days_observed, first_criterion_day)
-  )
-```
-
-# Feature overview
-
-```{r feature-table}
-feature_table <- animal_features %>%
-  select(
-    animal_id, cohort, strain, sex,
-    omission_rate_mean, omission_rate_sd,
-    iti_touch_asym_mean, iti_touch_asym_sd,
-    touch_latency_mean, touch_latency_iqr,
-    reward_latency_mean, reward_latency_iqr,
-    blank_latency_mean
-  ) %>%
-  mutate(across(where(is.numeric), round, 2)) %>%
-  arrange(cohort, animal_id) %>%
-  gt() %>%
-  tab_header(
-    title = "Engineered behavioral features by animal"
+    session_day = x + mean_day,
+    task_phase  = factor(facet, levels = levels(acc_data$task_phase)),
+    genotype    = group
   )
 
-feature_table
+acc_plot <- ggplot(acc_predictions, aes(x = session_day, y = predicted, colour = genotype)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = genotype), alpha = 0.15, colour = NA) +
+  geom_line(size = 0.9) +
+  facet_wrap(~ task_phase, scales = "free_y") +
+  scale_colour_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(
+    title = "Predicted accuracy trajectories by genotype",
+    x = "Session day",
+    y = "Predicted probability correct"
+  ) +
+  theme_minimal()
+
+acc_plot
 ```
 
-# Multivariate phenotyping
+```{r}
+latency_predictions <- purrr::imap_dfr(latency_results, ~{
+  preds <- ggpredict(
+    .x$full,
+    terms = c(day_term, "genotype", "task_phase")
+  ) |> as_tibble()
+  preds |> 
+    mutate(
+      session_day = x + mean_day,
+      task_phase  = factor(facet, levels = levels(latency_long$task_phase)),
+      genotype    = group,
+      metric      = .y,
+      predicted   = exp(predicted),
+      conf.low    = exp(conf.low),
+      conf.high   = exp(conf.high)
+    )
+})
 
-```{r pca-prep}
-feature_cols <- c(
-  "omission_rate_mean", "omission_rate_sd",
-  "iti_touch_asym_mean", "iti_touch_asym_sd",
-  "touch_latency_mean", "touch_latency_iqr",
-  "reward_latency_mean", "reward_latency_iqr",
-  "blank_latency_mean"
-)
+latency_plot <- ggplot(latency_predictions,
+                       aes(x = session_day, y = predicted, colour = genotype)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = genotype), alpha = 0.15, colour = NA) +
+  geom_line(size = 0.9) +
+  facet_grid(metric ~ task_phase, scales = "free_y") +
+  scale_colour_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(
+    title = "Predicted latency trajectories by genotype",
+    x = "Session day",
+    y = "Predicted latency (s)"
+  ) +
+  theme_minimal()
 
-scaled_features <- animal_features %>%
-  group_by(cohort) %>%
-  mutate(across(all_of(feature_cols), scale_within, .names = "scaled_{.col}")) %>%
-  ungroup()
-
-pca_matrix <- scaled_features %>%
-  select(starts_with("scaled_"))
-
-non_zero_cols <- vapply(
-  pca_matrix,
-  function(x) {
-    if (all(is.na(x))) {
-      return(FALSE)
-    }
-    sd(x, na.rm = TRUE) > 0
-  },
-  logical(1)
-)
-pca_matrix <- as.data.frame(pca_matrix[, non_zero_cols, drop = FALSE])
-
-rownames(pca_matrix) <- scaled_features$animal_id
-
-pca_res <- FactoMineR::PCA(pca_matrix, graph = FALSE)
-
-pca_scores <- as_tibble(pca_res$ind$coord, rownames = "animal_id") %>%
-  left_join(scaled_features %>% select(animal_id, strain, cohort, sex), by = "animal_id")
+latency_plot
 ```
 
-```{r pca-biplot, fig.height=6, fig.width=8}
-fviz_pca_biplot(
-  pca_res,
-  habillage = scaled_features$strain,
-  addEllipses = TRUE,
-  repel = TRUE,
-  label = "var",
-  palette = c("B6" = "#d95f02", "C3HxB6" = "#1b9e77")
-) +
-  ggtitle("PCA biplot of scaled behavioral features")
-```
-
-```{r genotype-loadings}
-genotype_pc_summary <- pca_scores %>%
-  group_by(strain) %>%
-  summarise(
-    across(starts_with("Dim"), mean, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  mutate(across(starts_with("Dim"), round, 2)) %>%
-  gt() %>%
-  tab_header(title = "Mean principal component scores by genotype")
-
-genotype_pc_summary
-```
-
-```{r clustering}
-dist_mat <- dist(pca_matrix)
-hc <- hclust(dist_mat, method = "ward.D2")
-clusters <- cutree(hc, k = 3)
-
-cluster_assignments <- scaled_features %>%
-  mutate(cluster = factor(clusters)) %>%
-  select(animal_id, strain, cohort, cluster)
-```
-
-```{r dendrogram, fig.height=6, fig.width=6}
-fviz_dend(
-  hc,
-  k = 3,
-  rect = TRUE,
-  show_labels = TRUE,
-  cex = 0.8,
-  main = "Hierarchical clustering of behavioral phenotypes"
-)
-```
-
-```{r cluster-table}
-cluster_table <- cluster_assignments %>%
-  count(strain, cluster) %>%
-  group_by(strain) %>%
-  mutate(percentage = scales::percent(n / sum(n))) %>%
-  ungroup() %>%
-  arrange(strain, cluster) %>%
-  gt() %>%
-  tab_header(title = "Cluster membership by genotype")
-
-cluster_table
-```
-
-# Survival-style time-to-criterion analysis
-
-```{r survival-prep}
-survival_df <- session_features %>%
-  group_by(animal_id, cohort, strain, sex) %>%
-  summarise(
-    event_day = ifelse(
-      any(second_criterion_count > 0, na.rm = TRUE),
-      min(day[second_criterion_count > 0], na.rm = TRUE),
-      NA_real_
-    ),
-    censor_day = max(day, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    time_to_event = if_else(is.na(event_day), censor_day, event_day),
-    event = !is.na(event_day)
-  )
-
-surv_obj <- Surv(time = survival_df$time_to_event, event = survival_df$event)
-km_fit <- survfit(surv_obj ~ strain, data = survival_df)
-```
-
-```{r km-plot, fig.height=6, fig.width=8}
-km_plot <- ggsurvplot(
-  km_fit,
-  data = survival_df,
-  fun = "event",
-  conf.int = TRUE,
-  conf.int.alpha = 0.2,
-  palette = c("B6" = "#d95f02", "C3HxB6" = "#1b9e77"),
-  legend.title = "Genotype",
-  legend.labs = levels(factor(survival_df$strain)),
-  xlab = "Day",
-  ylab = "% meeting second criterion",
-  ggtheme = theme_minimal()
-)
-
-km_plot
-```
-
-```{r survival-tables}
-median_table <- surv_median(km_fit) %>%
-  as_tibble() %>%
-  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%
-  gt() %>%
-  tab_header(title = "Median time-to-second-criterion by genotype")
-
-cox_mod <- coxph(surv_obj ~ strain, data = survival_df)
-cox_table <- tidy(cox_mod, exponentiate = TRUE, conf.int = TRUE) %>%
-  mutate(across(c(estimate, conf.low, conf.high), ~ round(.x, 2))) %>%
-  gt() %>%
-  tab_header(title = "Cox proportional hazards model") %>%
-  cols_label(
-    term = "Predictor",
-    estimate = "Hazard ratio",
-    conf.low = "Lower 95% CI",
-    conf.high = "Upper 95% CI",
-    p.value = "p-value"
-  )
-
-median_table
-cox_table
-```
-
-# Stakeholder summary
-
-The engineered feature set captures omissions, ITI touch asymmetry, and latency variability (IQR-based) alongside reward collection dynamics. PCA and hierarchical clustering highlight composite behavioral phenotypes, while genotype-specific summaries and cluster memberships aid in interpreting cohort-level differences. Kaplan–Meier curves and Cox models extend the familiar survival framework to the new dataset, providing continuity with the prior LD analytical workflow and offering interpretable time-to-second-criterion comparisons.
+The plots highlight the fitted genotype effects across training phases for both
+accuracy and latency metrics, providing the requested visual summaries of the
+model-based trajectories.
