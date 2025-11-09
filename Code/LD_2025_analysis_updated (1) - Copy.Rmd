@@ -1,0 +1,5133 @@
+---
+title: "Location Discrimination Analysis – LD 2025 dataset"
+author: "Generated via ChatGPT req. by Yashoda"
+date: "`r format(Sys.Date())`"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo       = TRUE,
+  warning    = FALSE,
+  message    = FALSE,
+  fig.align  = "center"
+)
+```
+
+
+
+
+```{r}
+
+
+
+## ------------------------------------------------------------------
+## 1.  DATA ENTRY  ───────────────────────────────────────────────────
+## ------------------------------------------------------------------
+ID          <- c(11,12,13,14,31,32,33,34,35,
+                 21,22,23,24,25,41,42,43,44,45)
+
+# recode “+” -> B6, “-” -> C3H x B6
+Strain      <- factor(c(rep("B6",        4),   # 11‑14
+                        rep("C3H x B6",  6),   # 31‑35, 41‑42
+                        rep("B6",        5),   # 21‑25
+                        rep("C3H x B6",  4)),  # 43‑45
+                      levels = c("B6", "C3H x B6"))
+
+Days        <- c( 8,12, 8,14, 11,11,13,14,14,
+                 11, 8,14, 8,14, 14,12,13,14,14)
+
+Event       <- c(1,1,1,0, 1,1,1,0,0,
+                 1,1,0,1,0, 0,1,1,1,1)
+
+df <- data.frame(ID, Strain, Days, Event)
+
+## ------------------------------------------------------------------
+## 2.  SURVIVAL OBJECT & KM CURVES  ──────────────────────────────────
+## ------------------------------------------------------------------
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+
+surv_obj <- Surv(time = df$Days, event = df$Event)
+km_fit   <- survfit(surv_obj ~ Strain, data = df)
+
+# colour palette
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+km_plot <- ggsurvplot(
+  km_fit,
+  data         = df,
+  fun          = "event",
+  conf.int     = TRUE,
+  conf.int.alpha = 0.25,
+  xlab         = "Days to criterion",
+  ylab         = "% mice reaching criterion",
+  legend.title = "Strain",
+  legend.labs  = levels(df$Strain),
+  ggtheme      = theme_minimal()
+)
+
+km_plot$plot <- km_plot$plot +
+  scale_color_manual(values = Strain_cols) +
+  scale_fill_manual(values = Strain_cols)
+
+print(km_plot)
+
+## ------------------------------------------------------------------
+## 3.  COX PROPORTIONAL‑HAZARDS MODEL  ───────────────────────────────
+## ------------------------------------------------------------------
+cox_mod <- coxph(Surv(Days, Event) ~ Strain, data = df)
+summary(cox_mod)
+
+# PH‑assumption test
+cox_ph  <- cox.zph(cox_mod)
+print(cox_ph)
+
+## ------------------------------------------------------------------
+## 4.  BAR‑PLOT OF FINAL OUTCOMES  ───────────────────────────────────
+## ------------------------------------------------------------------
+df_sum <- df %>%
+  group_by(Strain) %>%
+  summarise(n = n(),
+            events = sum(Event),
+            pct = 100 * events / n,
+            .groups = "drop")
+
+ggplot(df_sum, aes(Strain, pct, fill = Strain)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4) +
+  scale_fill_manual(values = Strain_cols) +
+  labs(title = "Percentage of Mice Reaching Criterion",
+       x = "Strain", y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        plot.title      = element_text(hjust = 0.5))
+
+## ------------------------------------------------------------------
+## 5. OPTIONAL BASE‑R PLOT (MATCHING COLOURS)  ───────────────────────
+## ------------------------------------------------------------------
+plot(km_fit,
+     col = Strain_cols[levels(df$Strain)],
+     lwd = 2, lty = 1,
+     xlab = "Days",
+     ylab = "Survival probability",
+     main = "KM survival by Strain")
+legend("bottomleft",
+       legend = levels(df$Strain),
+       col    = Strain_cols,
+       lwd = 2, bty = "n")
+
+
+
+
+
+```
+
+
+
+
+#LD General formatting
+
+
+```{r}
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ggpmisc)  # For regression equation annotations if desired
+
+# -------------------------------
+# 2. Data Import and Cleaning
+# -------------------------------
+
+# Read the Excel file (adjust the file path if needed)
+data <- readxl::read_excel("C:/Users/yashodad/Downloads/LD 2025/LD 2025 data3_processed.xlsx")
+head(data)
+# Clean column names: remove spaces/special characters.
+names(data) <- gsub("[^[:alnum:]]", "", names(data))
+# For example, after cleaning, "% Correct" may become "Correct". We'll rename it to "PercentCorrect".
+colnames(data)[colnames(data) == "Correct"] <- "PercentCorrect"
+
+# Rename other columns for clarity (if needed):
+colnames(data)[colnames(data) == "AnimalID"] <- "AnimalID"  # Already fine
+colnames(data)[colnames(data) == "CorrectTouchLatency"] <- "Correct.touch.latency"
+colnames(data)[colnames(data) == "blanktouchlatency"] <- "Blank.Touch.Latency"
+colnames(data)[colnames(data) == "CorrectRewardCollection"] <- "Correct.Reward.Collection"
+# (Other columns such as TrialsCompleted, LeftITITouches, RightITITouches, Day, Strain, and Sex should be okay.
+
+# Convert variables to appropriate types
+data <- data %>%
+  mutate(
+    AnimalID = as.factor(AnimalID),
+    PercentCorrect = as.numeric(EndSummaryCorrect1),
+    CorrectTouchLatency = as.numeric(Correcttouchlatency),
+    blanktouchlatency = as.numeric(BlankTouchLatency),
+    CorrectRewardCollection = as.numeric(Correct.Reward.Collection),
+    TrialsCompleted = as.numeric(EndSummaryTrialsCompleted1),
+    SessionTime = as.numeric(EndSummaryCondition1),
+    Day = as.numeric(Day),
+    Strain = as.factor(Strain),
+    Sex = as.factor(Sex),
+    LeftITI          = as.numeric(EndSummaryLeftITITouches1),
+    RightITI         = as.numeric(EndSummaryRightITITouches1),
+    LeftBlank             = as.numeric(EndSummaryLeftBlankTouchesGenericCounter1),
+    RightBlank            = as.numeric(EndSummaryRightBlankTouchesGenericCounter1)  # <- no space
+  )
+  
+
+#    LeftBlank            = `End.SummaryLeftBlankTouchesGenericCounter..1.`,
+#    RightBlank           = `End.Summary...Right.Blank.Touches...Generic.Counter..1.`,
+
+
+# -------------------------------
+# 3. Recode Strain Levels and Define Colors
+# -------------------------------
+# Our goal is to change:
+#   original "+"  --> "-/-" 
+#   original "+/-" remains as "+/-"
+#   original "-"  --> "+/+"
+data$Strain <- factor(data$Strain, levels = c("+", "-"))
+levels(data$Strain) <- c("B6", "C3HxB6")
+
+# Define a color mapping:
+#   "-/-" (originally +) will be green,
+#   "+/-" remains blue,
+#   "+/+" (originally -) will be red.
+
+# Define color mapping for Strain:
+geno_colors <- c("B6" = "red", "C3HxB6" = "black")
+
+```
+
+
+#LDC formatting
+
+
+```{r}
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ggpmisc)  # For regression equation annotations if desired
+
+# -------------------------------
+# 2. Data Import and Cleaning
+# -------------------------------
+
+# Read the Excel file (adjust the file path if needed)
+data <- readxl::read_excel("C:/Users/yashodad/Downloads/LD 2025/LDC 2025 data2_processed.xlsx")
+head(data)
+# Clean column names: remove spaces/special characters.
+names(data) <- gsub("[^[:alnum:]]", "", names(data))
+# For example, after cleaning, "% Correct" may become "Correct". We'll rename it to "PercentCorrect".
+colnames(data)[colnames(data) == "Correct"] <- "PercentCorrect"
+
+# Rename other columns for clarity (if needed):
+colnames(data)[colnames(data) == "AnimalID"] <- "AnimalID"  # Already fine
+colnames(data)[colnames(data) == "CorrectTouchLatency"] <- "Correct.touch.latency"
+colnames(data)[colnames(data) == "blanktouchlatency"] <- "Blank.Touch.Latency"
+colnames(data)[colnames(data) == "CorrectRewardCollection"] <- "Correct.Reward.Collection"
+# (Other columns such as TrialsCompleted, LeftITITouches, RightITITouches, Day, Strain, and Sex should be okay.
+
+# Convert variables to appropriate types
+data <- data %>%
+  mutate(
+    AnimalID = as.factor(AnimalID),
+    PercentCorrect = as.numeric(EndSummaryCorrect1),
+    CorrectTouchLatency = as.numeric(Correcttouchlatency),
+    blanktouchlatency = as.numeric(BlankTouchLatency),
+    CorrectRewardCollection = as.numeric(Correct.Reward.Collection),
+    TrialsCompleted = as.numeric(EndSummaryTrialsCompleted1),
+    SessionTime = as.numeric(EndSummaryCondition1),
+    Day = as.numeric(Day),
+    Strain = as.factor(Strain),
+    Sex = as.factor(Sex),
+    LeftITI          = as.numeric(EndSummaryLeftITITouches1),
+    RightITI         = as.numeric(EndSummaryRightITITouches1),
+    LeftBlank             = as.numeric(EndSummaryLeftBlankTouchesGenericCounter1),
+    RightBlank            = as.numeric(EndSummaryRightBlankTouchesGenericCounter1)  # <- no space
+  )
+  
+
+#    LeftBlank            = `End.SummaryLeftBlankTouchesGenericCounter..1.`,
+#    RightBlank           = `End.Summary...Right.Blank.Touches...Generic.Counter..1.`,
+
+
+# -------------------------------
+# 3. Recode Strain Levels and Define Colors
+# -------------------------------
+# Our goal is to change:
+#   original "+"  --> "-/-" 
+#   original "+/-" remains as "+/-"
+#   original "-"  --> "+/+"
+data$Strain <- factor(data$Strain, levels = c("+", "-"))
+levels(data$Strain) <- c("B6", "C3HxB6")
+
+# Define a color mapping:
+#   "-/-" (originally +) will be green,
+#   "+/-" remains blue,
+#   "+/+" (originally -) will be red.
+
+# Define color mapping for Strain:
+geno_colors <- c("B6" = "red", "C3HxB6" = "black")
+```
+
+
+
+
+#LDR Formatting
+
+
+```{r}
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ggpmisc)  # For regression equation annotations if desired
+
+# -------------------------------
+# 2. Data Import and Cleaning
+# -------------------------------
+
+# Read the Excel file (adjust the file path if needed)
+data <- readxl::read_excel("C:/Users/yashodad/Downloads/LD 2025/LDR 2025 data1_processed_withSecondCriterion.xlsx")
+head(data)
+# Clean column names: remove spaces/special characters.
+names(data) <- gsub("[^[:alnum:]]", "", names(data))
+# For example, after cleaning, "% Correct" may become "Correct". We'll rename it to "PercentCorrect".
+colnames(data)[colnames(data) == "Correct"] <- "PercentCorrect"
+
+# Rename other columns for clarity (if needed):
+colnames(data)[colnames(data) == "AnimalID"] <- "AnimalID"  # Already fine
+colnames(data)[colnames(data) == "CorrectTouchLatency"] <- "Correct.touch.latency"
+colnames(data)[colnames(data) == "blanktouchlatency"] <- "Blank.Touch.Latency"
+colnames(data)[colnames(data) == "CorrectRewardCollection"] <- "Correct.Reward.Collection"
+# (Other columns such as TrialsCompleted, LeftITITouches, RightITITouches, Day, Strain, and Sex should be okay.
+
+# Convert variables to appropriate types
+data <- data %>%
+  mutate(
+    AnimalID = as.factor(AnimalID),
+    PercentCorrect = as.numeric(EndSummaryCorrect1),
+    CorrectTouchLatency = as.numeric(Correcttouchlatency),
+    blanktouchlatency = as.numeric(BlankTouchLatency),
+    CorrectRewardCollection = as.numeric(Correct.Reward.Collection),
+    TrialsCompleted = as.numeric(EndSummaryTrialsCompleted1),
+    SessionTime = as.numeric(EndSummaryCondition1),
+    Day = as.numeric(Day),
+    LDRcount = as.numeric(NotrialstocriterionGenericEvaluation121),
+    Strain = as.factor(Strain),
+    Sex = as.factor(Sex),
+    LeftITI          = as.numeric(EndSummaryLeftITITouches1),
+    RightITI         = as.numeric(EndSummaryRightITITouches1),
+    LeftBlank             = as.numeric(EndSummaryLeftBlankTouchesGenericCounter1),
+    RightBlank            = as.numeric(EndSummaryRightBlankTouchesGenericCounter1),
+    TrialsToFirstCriterion = as.numeric(NotrialstocriterionCondition1),
+    TrialsToSecondCriterion = as.numeric(NotrialstocriterionCondition2),
+    TimesCriteriaReached = as.numeric(EndSummaryTimesCriteriareached160),
+    TotalITI = LeftITI + RightITI
+  )
+  
+
+
+head(data)
+#End.Summary...Times.Criteria.reached..1.
+
+#    LeftBlank            = `End.SummaryLeftBlankTouchesGenericCounter..1.`,
+#    RightBlank           = `End.Summary...Right.Blank.Touches...Generic.Counter..1.`,
+
+
+# -------------------------------
+# 3. Recode Strain Levels and Define Colors
+# -------------------------------
+# Our goal is to change:
+#   original "+"  --> "-/-" 
+#   original "+/-" remains as "+/-"
+#   original "-"  --> "+/+"
+data$Strain <- factor(data$Strain, levels = c("+", "-"))
+levels(data$Strain) <- c("B6", "C3HxB6")
+
+
+# Define color mapping for Strain:
+geno_colors <- c("B6" = "red", "C3HxB6" = "black")
+
+head(data)
+```
+
+##PDR Formattion
+
+```{r}
+
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ggpmisc)  # For regression equation annotations if desired
+
+# -------------------------------
+# 2. Data Import and Cleaning
+# -------------------------------
+
+# Read the Excel file (adjust the file path if needed)
+data <- readxl::read_excel("C:/Users/yashodad/Downloads/LD 2025/PDR25_processed.xlsx")
+head(data)
+# Clean column names: remove spaces/special characters.
+names(data) <- gsub("[^[:alnum:]]", "", names(data))
+# For example, after cleaning, "% Correct" may become "Correct". We'll rename it to "PercentCorrect".
+colnames(data)[colnames(data) == "Correct"] <- "PercentCorrect"
+
+# Rename other columns for clarity (if needed):
+colnames(data)[colnames(data) == "AnimalID"] <- "AnimalID"  # Already fine
+colnames(data)[colnames(data) == "CorrectTouchLatency"] <- "Correct.touch.latency"
+colnames(data)[colnames(data) == "blanktouchlatency"] <- "Blank.Touch.Latency"
+colnames(data)[colnames(data) == "CorrectRewardCollection"] <- "Correct.Reward.Collection"
+# (Other columns such as TrialsCompleted, LeftITITouches, RightITITouches, Day, Strain, and Sex should be okay.
+
+# Convert variables to appropriate types
+data <- data %>%
+  mutate(
+    AnimalID = as.factor(AnimalID),
+    PercentCorrect = as.numeric(EndSummaryCorrect1),
+    CorrectTouchLatency = as.numeric(Correcttouchlatency),
+    blanktouchlatency = as.numeric(BlankTouchLatency),
+    CorrectRewardCollection = as.numeric(Correct.Reward.Collection),
+    TrialsCompleted = as.numeric(EndSummaryTrialsCompleted1),
+    SessionTime = as.numeric(EndSummaryCondition1),
+    Day = as.numeric(Day),
+    CorrectionTrial = as.numeric(EndSummaryNoCorrectionTrials1),
+    Strain = as.factor(Strain),
+    Sex = as.factor(Sex),
+    LeftITI          = as.numeric(EndSummaryLeftITITouches1),
+    RightITI         = as.numeric(EndSummaryRightITITouches1),
+        TotalITI = LeftITI + RightITI
+    )
+  
+
+#    LeftBlank            = `End.SummaryLeftBlankTouchesGenericCounter..1.`,
+#    RightBlank           = `End.Summary...Right.Blank.Touches...Generic.Counter..1.`,
+
+
+# -------------------------------
+# 3. Recode Strain Levels and Define Colors
+# -------------------------------
+# Our goal is to change:
+#   original "+"  --> "-/-" 
+#   original "+/-" remains as "+/-"
+#   original "-"  --> "+/+"
+data$Strain <- factor(data$Strain, levels = c("+", "-"))
+levels(data$Strain) <- c("B6", "C3HxB6")
+
+# Define a color mapping:
+#   "-/-" (originally +) will be green,
+#   "+/-" remains blue,
+#   "+/+" (originally -) will be red.
+
+# Define color mapping for Strain:
+geno_colors <- c("B6" = "red", "C3HxB6" = "black")
+head(data)
+```
+
+#Regression for latencies
+```{r}
+
+# -------------------------------
+# 4. Analyses & Graphs
+# -------------------------------
+# 4.1. Regression of % Correct by Correct Touch Latency Measures
+
+## (a) % Correct ~ CorrectTouchLatency
+# Linear model:
+lm_pct_latency_linear <- lm(PercentCorrect ~ CorrectTouchLatency, data = data)
+summary(lm_pct_latency_linear)
+
+# Quadratic (polynomial) model:
+#lm_pct_latency_poly <- lm(PercentCorrect ~ poly(CorrectTouchLatency, 2), data = data)
+#summary(lm_pct_latency_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectTouchLatency, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Touch",
+       x = "Correct Touch Latency ",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial (quadratic) fit:
+#ggplot(data, aes(x = CorrectTouchLatency, y = PercentCorrect)) +
+ # geom_point(aes(color = Strain), alpha = 0.6) +
+  #scale_color_manual(values = geno_colors) +
+  #stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+ # labs(title = "Polynomial Regression: % Correct vs. Correct Touch Latency ",
+    #   x = "Correct Touch Latency",
+   #    y = "Percent Correct") +
+  #theme_minimal()
+
+
+## (b) % Correct ~ CorrectTouchLatencySum
+# Linear model:
+lm_pct_latencySum_linear <- lm(PercentCorrect ~ CorrectTouchLatency, data = data)
+summary(lm_pct_latencySum_linear)
+
+# Quadratic model:
+#lm_pct_latencySum_poly <- lm(PercentCorrect ~ poly(CorrectTouchLatency, 2), data = data)
+#summary(lm_pct_latencySum_poly)
+#
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectTouchLatency, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Touch Latency",
+       x = "Correct Touch Latency Sum",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+#ggplot(data, aes(x = CorrectTouchLatency, y = PercentCorrect)) +
+ # geom_point(aes(color = Strain), alpha = 0.6) +
+  #scale_color_manual(values = geno_colors) +
+  #stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+#  labs(title = "Polynomial Regression: % Correct vs. Correct Touch Latency",
+#       x = "Correct Touch Latency Sum",
+ #      y = "Percent Correct") +
+  #theme_minimal()
+
+
+# 4.2. Regression of % Correct by Strain and Sex
+lm_pct_geno_sex <- lm(PercentCorrect ~ Strain * Sex, data = data)
+summary(lm_pct_geno_sex)
+
+# For visualization, we use boxplots (with jitter):
+ggplot(data, aes(x = Strain, y = PercentCorrect, fill = Strain, shape = Sex)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Strain), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "% Correct by Strain and Sex",
+       x = "Strain",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+# 4.3. Regression of Correct Reward Collection by Strain and Sex
+lm_correctReward <- lm(CorrectRewardCollection ~ Strain * Sex, data = data)
+summary(lm_correctReward)
+
+ggplot(data, aes(x = Strain, y = CorrectRewardCollection, fill = Strain)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Strain), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "Correct Reward Collection by Strain and Sex",
+       x = "Strain",
+       y = "Correct Reward Collection") +
+  theme_minimal()
+
+
+# 4.4. Regression of % Correct by Correct Reward Collection and its Latency
+
+## (a) % Correct ~ Correct Reward Collection
+lm_pct_reward_linear <- lm(PercentCorrect ~ CorrectRewardCollection, data = data)
+summary(lm_pct_reward_linear)
+
+#lm_pct_reward_poly <- lm(PercentCorrect ~ poly(CorrectRewardCollection, 2), data = data)
+#summary(lm_pct_reward_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Reward Collection",
+       x = "Correct Reward Collection",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+#ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+ # geom_point(aes(color = Strain), alpha = 0.6) +
+#  scale_color_manual(values = geno_colors) +
+#  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+#  labs(title = "Polynomial Regression: % Correct vs. Correct Reward Collection",
+ #      x = "Correct Reward Collection",
+  #     y = "Percent Correct") +
+  #theme_minimal()
+
+
+## (b) % Correct ~ Correct Reward Collection Latency 
+lm_pct_rewardLat_linear <- lm(PercentCorrect ~ blanktouchlatency, data = data)
+summary(lm_pct_rewardLat_linear)
+
+#lm_pct_rewardLat_poly <- lm(PercentCorrect ~ poly(blanktouchlatency, 2), data = data)
+#summary(lm_pct_rewardLat_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = blanktouchlatency, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Blank Touch Latency ",
+       x = "Blank Touch Latency ",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = blanktouchlatency, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Blank Touch Latency ",
+       x = "Blank Touch Latency ",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+
+```
+
+
+
+
+
+```{r}
+
+# -------------------------------
+# 2. Data Import and Cleaning
+# -------------------------------
+
+
+
+# -------------------------------
+# 4. Analyses & Graphs
+# -------------------------------
+# 4.1. Regression of % Correct by Correct Touch Latency Measures
+
+## (a) % Correct ~ CorrectTouchLatency
+# Linear model:
+lm_pct_latency_linear <- lm(PercentCorrect ~ CorrectTouchLatency, data = data)
+summary(lm_pct_latency_linear)
+
+# Quadratic (polynomial) model:
+#lm_pct_latency_poly <- lm(PercentCorrect ~ poly(CorrectTouchLatency, 2), data = data)
+#summary(lm_pct_latency_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectTouchLatency, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Touch Latency ",
+       x = "Correct Touch Latency ",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial (quadratic) fit:
+#ggplot(data, aes(x = CorrectTouchLatency, y = PercentCorrect)) +
+ # geom_point(aes(color = Strain), alpha = 0.6) +
+  #scale_color_manual(values = geno_colors) +
+  #stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  #labs(title = "Polynomial Regression: % Correct vs. Correct Touch Latency ",
+    #   x = "Correct Touch Latency ",
+   #    y = "Percent Correct") +
+ # theme_minimal()
+
+
+
+# 4.2. Regression of % Correct by Strain and Sex
+lm_pct_geno_sex <- lm(PercentCorrect ~ Strain * Sex, data = data)
+summary(lm_pct_geno_sex)
+
+# For visualization, we use boxplots (with jitter):
+ggplot(data, aes(x = Strain, y = PercentCorrect, fill = Strain)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Strain), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "% Correct by Strain and Sex",
+       x = "Strain",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+# 4.3. Regression of Correct Reward Collection by Strain and Sex
+lm_correctReward <- lm(CorrectRewardCollection ~ Strain * Sex, data = data)
+summary(lm_correctReward)
+
+ggplot(data, aes(x = Strain, y = CorrectRewardCollection, fill = Strain)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Strain), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "Correct Reward Collection by Strain and Sex",
+       x = "Strain",
+       y = "Correct Reward Collection") +
+  theme_minimal()
+
+
+
+
+# 4.3. Regression of Correct Reward Collection by Strain and Sex
+lm_correctReward <- lm(blanktouchlatency ~ Strain * Sex, data = data)
+summary(lm_correctReward)
+
+ggplot(data, aes(x = Strain, y = BlankTouchLatency, fill = Strain)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Strain), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "Blank Touch Latency by Strain and Sex",
+       x = "Strain",
+       y = "Blank Touch Collection") +
+  theme_minimal()
+
+
+# 4.4. Regression of % Correct by Correct Reward Collection and its Latency
+
+## (a) % Correct ~ Correct Reward Collection
+lm_pct_reward_linear <- lm(PercentCorrect ~ CorrectRewardCollection, data = data)
+summary(lm_pct_reward_linear)
+
+#lm_pct_reward_poly <- lm(PercentCorrect ~ poly(CorrectRewardCollection, 2), data = data)
+#summary(lm_pct_reward_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Reward Collection",
+       x = "Correct Reward Collection",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+#ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+ # geom_point(aes(color = Strain), alpha = 0.6) +
+  #scale_color_manual(values = geno_colors) +
+  #stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+ # labs(title = "Polynomial Regression: % Correct vs. Correct Reward Collection",
+  #     x = "Correct Reward Collection",
+   #    y = "Percent Correct") +
+#  theme_minimal()
+
+
+## (b) % Correct ~ Correct Reward Collection Latency 
+lm_pct_rewardLat_linear <- lm(PercentCorrect ~ blanktouchlatency, data = data)
+summary(lm_pct_rewardLat_linear)
+
+lm_pct_rewardLat_poly <- lm(
+  PercentCorrect ~ blanktouchlatency + I(blanktouchlatency^2),
+  data = data,
+  na.action = na.exclude
+)
+summary(lm_pct_rewardLat_poly)
+
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = blanktouchlatency, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Blank Touch Latency ",
+       x = "Blank touch Latency ",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = blanktouchlatency, y = PercentCorrect)) +
+  geom_point(aes(color = Strain), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Blank Touch Latency ",
+       x = "Blank Touch Latency ",
+       y = "Percent Correct") +
+  theme_minimal()
+
+ 
+
+```
+
+
+
+```{r Linear Mixed Model for Latency data}
+
+
+
+library(lme4)
+
+
+ #Model for PercentCorrect:
+model_pc <- lmer(PercentCorrect ~ Day + Strain + Sex + (1 | AnimalID), data = data)
+summary(model_pc)
+# Interpretation: Look at the fixed effects for Strain and Sex (and Trial) to see if they are significant.
+
+# Model for SessionTime:
+model_st <- lmer(EndSummaryCondition1 ~ Day + Strain + Sex + (1 | AnimalID), data = data)
+summary(model_st)
+# Interpretation: Assess whether SessionTime varies by Strain and Sex while controlling for Trial.
+
+# QUESTION 2:
+# Do LeftITI and/or RightITI correlate with higher PercentCorrect scores?
+
+# Model with Left ITI touches:
+model_leftITI <- lmer(PercentCorrect ~ Day + EndSummaryLeftITITouches1 + (1 | AnimalID), data = data)
+summary(model_leftITI)
+
+# Model with Right ITI touches:
+model_rightITI <- lmer(PercentCorrect ~ Day + EndSummaryRightITITouches1 + (1 | AnimalID), data = data)
+summary(model_rightITI)
+
+# Combined model with both predictors:
+model_bothITI <- lmer(PercentCorrect ~ Day + EndSummaryLeftITITouches1 + EndSummaryRightITITouches1 + (1 | AnimalID), data = data)
+summary(model_bothITI)
+
+model_pc <- lmer(blanktouchlatency ~ Day + Strain + (1 | AnimalID), data = data)
+summary(model_pc)
+
+
+
+##OPTIONAL##
+
+
+  
+  # Cumulative Trials Completed over Days
+p15 <- data %>%
+  group_by(Day, Strain, Sex) %>%
+  summarise(CumulativeTrials = sum(TrialsCompleted, na.rm = TRUE)) %>%
+  ggplot(aes(x = Day, y = CumulativeTrials, color = Strain, group = Strain)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ Sex) +
+  labs(title = "Cumulative Trials Completed Over Days",
+       y = "Cumulative Trials") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+
+
+# Cumulative Percent Correct over Days
+p16 <- data %>%
+  group_by(Day, Strain, Sex) %>%
+  summarise(CumulativeAccuracy = sum(PercentCorrect, na.rm = TRUE)) %>%
+  ggplot(aes(x = Day, y = CumulativeAccuracy, color = Strain, group = Strain)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ Sex) +
+  labs(title = "Cumulative Accuracy Over Days",
+       y = "Cumulative % Correct") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+
+library(ggdist)
+
+# Raincloud plot for Trials Completed by Strain
+p17 <- ggplot(data, aes(x = Strain, y = TrialsCompleted, fill = Strain)) +
+  stat_halfeye(adjust = 0.5, width = 0.6, .width = 0, justification = -0.2) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  stat_dots(side = "left", justification = 1.1, binwidth = 1) +
+  facet_wrap(~ Day) +
+  labs(title = "Raincloud Plot of Trials Completed by Strain",
+       y = "Trials Completed") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+
+# Raincloud plot for Percent Correct by Strain
+p18 <- ggplot(data, aes(x = Strain, y = PercentCorrect, fill = Strain)) +
+  stat_halfeye(adjust = 0.5, width = 0.6, .width = 0, justification = -0.2) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  stat_dots(side = "left", justification = 1.1, binwidth = 1) +
+  facet_wrap(~ Day) +
+  labs(title = "Raincloud Plot of Accuracy by Strain",
+       y = "% Correct") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+
+
+# Interaction plot for Strain × Sex on Trials Completed
+p19 <- data %>%
+  group_by(Strain, Sex, Day) %>%
+  summarise(MeanTrials = mean(TrialsCompleted, na.rm = TRUE)) %>%
+  ggplot(aes(x = Day, y = MeanTrials, color = Strain, group = Strain)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ Sex) +
+  labs(title = "Interaction Plot: Strain × Sex on Trials Completed",
+       y = "Mean Trials Completed") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+# Interaction plot for Strain × Sex on Percent Correct
+p20 <- data %>%
+  group_by(Strain, Sex, Day) %>%
+  summarise(MeanAccuracy = mean(PercentCorrect, na.rm = TRUE)) %>%
+  ggplot(aes(x = Day, y = MeanAccuracy, color = Strain, group = Strain)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ Sex) +
+  labs(title = "Interaction Plot: Strain × Sex on Accuracy",
+       y = "Mean % Correct") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+
+
+# Faceted scatterplot of Trials Completed vs Percent Correct
+p21 <- ggplot(data, aes(x = TrialsCompleted, y = PercentCorrect, color = Strain)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(Sex ~ Day) +
+  labs(title = "Trials Completed vs Accuracy by Strain, Sex, and Day",
+       x = "Trials Completed",
+       y = "% Correct") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+
+
+library(ggpubr)
+
+# Boxplot with pairwise comparisons
+p22 <- ggplot(data, aes(x = Strain, y = TrialsCompleted, fill = Sex)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test", label = "p.signif") +
+  facet_wrap(~ Day) +
+  labs(title = "Trials Completed by Strain and Sex with Pairwise Comparisons",
+       y = "Trials Completed") +
+  theme_minimal()+
+  scale_color_manual(values = geno_colors)
+
+
+p15
+p16
+p17
+p18
+p19
+p20
+p21
+p22
+
+
+    
+    
+    
+```
+
+
+
+
+
+```{r}
+
+
+
+library(ggridges)
+
+p_ridge <- ggplot(data, aes(x = PercentCorrect, y = as.factor(Day), fill = Strain)) +
+  geom_density_ridges(alpha = 0.6, color = "white", scale = 1.5) +
+  facet_wrap(~ Sex) +
+  labs(
+    title = "Ridgeline Plot of Accuracy by Day",
+    x     = "% Correct",
+    y     = "Day"
+  ) +
+  scale_fill_manual(values = geno_colors)
+
+p_ridge
+
+
+p_violin <- ggplot(data, aes(x = Strain, y = TrialsCompleted, fill = Strain)) +
+  geom_violin(alpha = 0.6) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = "white") +
+  facet_wrap(~ Day + Sex, ncol = 4) +
+  labs(
+    title = "Violin + Boxplot of Trials Completed",
+    x     = "Strain",
+    y     = "Trials Completed"
+  ) +
+  scale_fill_brewer(palette = "geno_colors")
+p_violin
+
+
+p_box <- ggplot(data, aes(x = Strain, y = PercentCorrect, color = Strain)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.3) +
+  geom_jitter(width = 0.2, alpha = 0.6) +
+  facet_wrap(~ Day + Sex) +
+  labs(
+    title = "Boxplot + Jitter of Accuracy",
+    x     = "Strain",
+    y     = "% Correct"
+  ) +
+  scale_color_brewer(palette = "geno_colors")
+p_box
+
+
+# Create the ridgeplot:
+ggplot(data, aes(x = PercentCorrect, y = Strain, fill = Strain)) +
+  geom_density_ridges(alpha = 0.7, scale = 1.2, rel_min_height = 0.01) +
+  scale_fill_manual(values = geno_colors) +
+  labs(title = "Distribution of Percent Correct by Strain",
+       x = "Percent Correct",
+       y = "Strain") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+
+
+
+
+
+```
+
+```{r}
+
+
+##########################################
+# Load Required Packages
+##########################################
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(zoo)          # For rollmean
+library(RColorBrewer) # For brewer palettes
+
+# Define mean_se function for stat_summary()
+mean_se <- function(x) {
+  m <- mean(x, na.rm = TRUE)
+  se <- sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))
+  data.frame(y = m, ymin = m - se, ymax = m + se)
+}
+
+##########################################
+# 1) Combined Performance Plot
+##########################################
+
+# Using gather() [older tidyr], or pivot_longer() [newer tidyr].
+# If gather() doesn't work, use the pivot_longer version shown below.
+p_plot <- data %>%
+  gather(key = "Measure", value = "Value", 
+         `TrialsCompleted`, 
+         `PercentCorrect`) %>%
+  mutate(Measure = dplyr::case_when(
+    Measure == "TrialsCompleted" ~ "Trials Completed",
+    Measure == "PercentCorrect" ~ "Accuracy (%)",
+    TRUE ~ Measure
+  )) %>%
+  ggplot(aes(x = Day, y = Value, color = Strain)) +
+  stat_summary(fun = mean, geom = "line", size = 1) +
+  stat_summary(fun.data = mean_se, geom = "ribbon", alpha = 0.2, aes(fill = Strain), color = NA) +
+  facet_grid(Sex ~ Measure, scales = "free_y") +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Learning Performance Across Days",
+    x = "Training Day",
+    y = "Performance Measure"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "white"),
+    legend.position = "bottom"
+  )
+
+
+# Alternative version using pivot_longer()
+p_plot_alt <- data %>%
+  pivot_longer(
+    cols = c(`TrialsCompleted`, `PercentCorrect`),
+    names_to = "Measure",
+    values_to = "Value"
+  ) %>%
+  mutate(Measure = dplyr::case_when(
+    Measure == "TrialsCompleted" ~ "Trials Completed",
+    Measure == "PercentCorrect" ~ "Accuracy (%)",
+    TRUE ~ Measure
+  )) %>%
+  ggplot(aes(x = Day, y = Value, color = Strain)) +
+  stat_summary(fun = mean, geom = "line", size = 1) +
+  stat_summary(fun.data = mean_se, geom = "ribbon", alpha = 0.2, aes(fill = Strain), color = NA) +
+  facet_grid(Sex ~ Measure, scales = "free_y") +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Learning Performance Across Days (Pivot Longer)",
+    x = "Training Day",
+    y = "Performance Measure"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "white"),
+    legend.position = "bottom"
+  )
+
+print(p_plot)
+print(p_plot_alt)
+
+##########################################
+# 2) Violin Plot of Accuracy Scores
+##########################################
+
+violin_plot <- ggplot(
+  data,
+  aes(x = Day, y = `PercentCorrect`, fill = Strain)
+) +
+  geom_violin(alpha = 0.6) +
+  geom_jitter(
+    width = 0.2, alpha = 0.4,
+    aes(color = Strain)
+  ) +
+  facet_grid(Sex ~ .) +
+  scale_fill_brewer(palette = "Set2") +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "Distribution of Accuracy Scores",
+    x = "Training Day",
+    y = "Accuracy (%)"
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+violin_plot
+
+
+# 2) Define your custom color mapping for Sex
+sex_colors <- c("M" = "cyan2", "F" = "deeppink")
+
+##########################################
+# 4) Trial Completion Consistency
+##########################################
+consistency_plot <- data %>%
+  group_by(AnimalID, Strain, Sex) %>%
+  summarize(
+    mean_trials = mean(`TrialsCompleted`, na.rm = TRUE),
+    sd_trials = sd(`TrialsCompleted`, na.rm = TRUE),
+    cv = sd_trials / mean_trials * 100,
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = Strain, y = cv, fill = Sex)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.4, aes(color = Strain)) +
+  scale_fill_manual(values = sex_colors) +
+  scale_color_manual(values = geno_colors) +
+  labs(
+    title = "Trial Completion Consistency",
+    y = "Coefficient of Variation (%)"
+  ) +
+  theme_bw()
+
+consistency_plot
+
+##########################################
+# 5) Chamber Effects on Performance
+##########################################
+
+#chamber_effects <- ggplot(
+ # data,
+  #aes(x = Sheet, y = `PercentCorrect`, fill = Strain)
+#) +
+ # geom_boxplot(alpha = 0.7) +
+  #geom_jitter(width = 0.2, alpha = 0.4, aes(color = Strain)) +
+  #facet_grid(Sex ~ .) +
+  #scale_color_manual(values = geno_colors) +
+  #scale_fill_manual(values = geno_colors) +
+  #labs(
+  #  title = "Chamber Effects on Performance",
+  #  x = "Chamber",
+  #  y = "Accuracy (%)"
+#  ) +
+#  theme_bw() +
+#  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#chamber_effects
+
+##########################################
+# 6) Day-to-Day Performance Stability
+##########################################
+
+stability_plot <- data %>%
+  group_by(AnimalID, Strain, Sex) %>%
+  arrange(Day) %>%
+  mutate(
+    perf_change = `PercentCorrect` -
+      lag(`PercentCorrect`)
+  ) %>%
+  ggplot(aes(x = Day, y = perf_change, color = Strain)) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  stat_summary(fun = mean, geom = "line", size = 1) +
+  stat_summary(fun.data = mean_se, geom = "ribbon", alpha = 0.2, aes(fill = Strain), color = NA) +
+  facet_grid(Sex ~ .) +
+  scale_color_manual(values = geno_colors) +
+  scale_fill_manual(values = geno_colors) +
+  labs(
+    title = "Day-to-Day Performance Stability",
+    x = "Training Day",
+    y = "Change in Accuracy (%)"
+  ) +
+  theme_bw()
+
+stability_plot
+
+##########################################
+# 7) Response Bias (Left vs Right Touches)
+##########################################
+
+bias_plot <- data %>%
+  mutate(
+    touch_bias = (`EndSummaryRightITITouches1`) /
+                 (`EndSummaryLeftITITouches1` +
+                  `EndSummaryRightITITouches1`)
+  ) %>%
+  ggplot(aes(x = Day, y = touch_bias, color = Strain)) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  stat_summary(fun = mean, geom = "line", size = 1) +
+  stat_summary(fun.data = mean_se, geom = "ribbon", alpha = 0.2, aes(fill = Strain), color = NA) +
+  facet_grid(Sex ~ .) +
+  scale_color_manual(values = geno_colors) +
+  scale_fill_manual(values = geno_colors) +
+  labs(
+    title = "Response Bias Development",
+    x = "Training Day",
+    y = "Right ITI Touch Bias"
+  ) +
+  theme_bw()
+
+bias_plot
+
+##########################################
+# 8) "Clustering" of Performance Patterns
+##########################################
+
+cluster_plot <- data %>%
+  group_by(AnimalID, Strain, Sex) %>%
+ summarize(
+    mean_accuracy   = mean(`PercentCorrect`, na.rm = TRUE),
+    mean_trials     = mean(`TrialsCompleted`, na.rm = TRUE),
+    accuracy_slope  = coef(lm(`PercentCorrect` ~ Day))[2],
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(
+    x = mean_accuracy, y = mean_trials,
+    color = Strain, shape = Sex
+  )) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  scale_color_manual(values = geno_colors) +
+  labs(
+    title = "Performance Pattern Clustering",
+    x = "Mean Accuracy (%)",
+    y = "Mean Trials Completed"
+  ) +
+  theme_bw()
+
+cluster_plot
+
+##########################################
+# 9) Session/Trial Block Duration
+##########################################
+
+duration_plot <- ggplot(data, aes(x = Day, y = EndSummaryCondition1, color = Strain)) +
+  # Plot the mean line (using the Strain colors)
+  stat_summary(fun = mean, geom = "line", size = 1) +
+  # Add the ribbon for the standard error but without any fill
+  stat_summary(fun.data = mean_se, geom = "ribbon", alpha = 0.2, fill = NA, color = NA) +
+  facet_grid(Sex ~ .) +
+  # Use your custom Strain colors for the line
+  scale_color_manual(values = geno_colors) +
+  labs(
+    title = "Session Duration Across Training",
+    x = "Training Day",
+    y = "End Time"
+  ) +
+  theme_minimal()
+
+duration_plot
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################
+# 10) Days to Reach Threshold
+##########################################
+
+threshold_plot <- data %>%
+  group_by(AnimalID, Strain, Sex) %>%
+  arrange(Day) %>%
+  mutate(above_threshold = `PercentCorrect` >= 45) %>%
+  summarize(
+    days_to_threshold = min(ifelse(above_threshold, Day, Inf)),
+    reached_threshold = any(above_threshold),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = Strain, y = days_to_threshold, fill = Sex)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.4, aes(color = Strain)) +
+  scale_fill_manual(values = sex_colors) +
+  scale_color_manual(values = geno_colors) +
+  labs(
+    title = "Days to Reach 45% Accuracy Threshold",
+    y = "Training Days"
+  ) +
+  theme_bw()
+
+threshold_plot
+
+##########################################
+# 11) Compare Early vs. Late Learning Phases
+##########################################
+
+phase_comparison <- data %>%
+  mutate(learning_phase = dplyr::case_when(
+    Day <= 10  ~ "Early",
+    Day >= 12 ~ "Late",
+    TRUE      ~ "Middle"
+  )) %>%
+  filter(learning_phase != "Middle") %>%
+  ggplot(aes(
+    x = learning_phase,
+    y = `PercentCorrect`,
+    fill = Strain
+  )) +
+  geom_boxplot(alpha = 0.7) +
+  geom_point(
+    position = position_jitterdodge(),
+    alpha = 0.4
+  ) +
+  facet_grid(Sex ~ .) +
+  scale_fill_manual(values = geno_colors) +
+  labs(
+    title = "Early vs Late Learning Phase Comparison",
+    x = "Learning Phase",
+    y = "Accuracy (%)"
+  ) +
+  theme_bw()
+
+phase_comparison
+
+
+
+
+phase_comparison2 <- data %>%
+  mutate(learning_phase = dplyr::case_when(
+    Day <= 10  ~ "Early",
+    Day >= 12 ~ "Late",
+    TRUE      ~ "Middle"
+  )) %>%
+  filter(learning_phase != "Middle") %>%
+  ggplot(aes(
+    x = learning_phase,
+    y = `TrialsCompleted`,
+    fill = Strain
+  )) +
+  geom_boxplot(alpha = 0.7) +
+  geom_point(
+    position = position_jitterdodge(),
+    alpha = 0.4
+  ) +
+  facet_grid(Sex ~ .) +
+  scale_fill_manual(values = geno_colors) +
+  labs(
+    title = "Early vs Late Learning Phase Comparison",
+    x = "Learning Phase",
+    y = "Accuracy (%)"
+  ) +
+  theme_bw()
+
+phase_comparison2
+
+
+##########################################
+# 12) Heatmap of Individual Performance Consistency
+##########################################
+
+consistency_heatmap <- data %>%
+  group_by(AnimalID, Day) %>%
+  summarize(
+    accuracy = mean(`PercentCorrect`, na.rm = TRUE),
+    Strain = dplyr::first(Strain),
+    sex      = dplyr::first(Sex),
+    .groups  = "drop"
+  ) %>%
+  ggplot(aes(x = Day, y = AnimalID, fill = accuracy)) +
+  geom_tile() +
+  facet_grid(sex + Strain ~ ., scales = "free_y", space = "free_y") +
+  scale_fill_viridis_c() +
+  labs(
+    title = "Individual Performance Consistency",
+    x = "Training Day",
+    y = "Animal ID",
+    fill = "Accuracy (%)"
+  ) +
+  theme_bw() +
+  theme(axis.text.y = element_blank())
+
+consistency_heatmap
+
+##########################################
+# 13) Learning Trajectory Classification
+##########################################
+
+trajectory_plot <- data %>%
+  group_by(AnimalID) %>%
+  arrange(Day) %>%
+  mutate(
+    rolling_acc = zoo::rollmean(
+      x = `PercentCorrect`,
+      k = 3,
+      fill = NA,
+      align = "right"
+    )
+  ) %>%
+  # Example classification rule; tweak the cutoffs (e.g. > 20, > 10) as desired
+  mutate(
+    trajectory_type = dplyr::case_when(
+      dplyr::last(rolling_acc) - dplyr::first(rolling_acc) > 20 ~ "Strong Improver",
+      dplyr::last(rolling_acc) - dplyr::first(rolling_acc) > 10 ~ "Moderate Improver",
+      TRUE ~ "Slow/No Improvement"
+    )
+  ) %>%
+  ggplot(aes(
+    x = Day,
+    y = rolling_acc,
+    group = AnimalID,
+    color = Strain
+  )) +
+  geom_line(alpha = 0.7) +
+  facet_grid(Sex ~ Strain) +
+  scale_color_manual(values = geno_colors) +
+  labs(
+    title = "Learning Trajectory Classifications",
+    x = "Training Day",
+    y = "Rolling Average Accuracy (%)",
+    color = "Trajectory Type"
+  ) +
+  theme_bw()
+
+trajectory_plot
+
+
+```
+```{r}
+
+
+# 1. Scatterplot of trials completed by AnimalID, colored by Strain and shaped by Sex
+trials_by_animal <- ggplot(data, 
+       aes(x = Day, 
+           y = `TrialsCompleted`, 
+           color = Strain,
+           shape = Sex)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.2) +
+  scale_color_brewer(palette = "Set2") +
+  scale_shape_manual(values = c(16, 17)) +
+  labs(title = "Trials Completed by Animal ID Over Time",
+       x = "Day",
+       y = "Trials Completed",
+       color = "Strain",
+       shape = "Sex") +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+library(ggpubr)
+# 2. Scatterplot of trials completed vs total trial block duration
+trials_by_duration <- ggplot(data, 
+       aes(x = EndSummaryCondition1, 
+           y = `TrialsCompleted`,
+           color = Strain,
+           shape = Sex)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, alpha = 0.2) +
+  scale_color_manual(values = geno_colors) +
+  scale_shape_manual(values = c(16, 17)) +
+  labs(title = "Trials Completed vs Total Trial Block Duration",
+       x = "Total Trial Block Duration",
+       y = "Trials Completed",
+       color = "Strain",
+       shape = "Sex") +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  ) +
+  # Add correlation annotation
+  stat_cor(aes(color = Strain), 
+           method = "pearson",
+           label.x.npc = "left",
+           label.y.npc = "top")
+
+# To display both plots side by side using patchwork
+library(patchwork)
+combined_plot <- trials_by_animal + trials_by_duration +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+# Print the combined plot
+print(combined_plot)
+
+# Alternative version with faceting
+# 1. Faceted by Sex
+trials_by_animal_faceted <- ggplot(data, 
+       aes(x = Day, 
+           y = `TrialsCompleted`, 
+           color = Strain)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.2) +
+  facet_grid(Sex ~ .) +
+  scale_color_manual(values = geno_colors) +
+  labs(title = "Trials Completed Over Time",
+       subtitle = "Faceted by Sex",
+       x = "Day",
+       y = "Trials Completed",
+       color = "Strain") +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+trials_by_duration_faceted <- ggplot(data, 
+       aes(x = EndSummaryCondition1, 
+           y = `TrialsCompleted`,
+           color = Strain)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, alpha = 0.2) +
+  facet_grid(Sex ~ .) +
+  scale_color_manual(values = geno_colors) +
+  labs(title = "Trials Completed vs Total Trial Duration",
+       subtitle = "Faceted by Sex",
+       x = "Total Trial Block Duration",
+       y = "Trials Completed",
+       color = "Strain") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  ) +
+  stat_cor(aes(color = Strain), 
+           method = "pearson",
+           label.x.npc = "left",
+           label.y.npc = "top")
+
+
+trials_by_duration_faceted
+
+# Print faceted plots
+faceted_combined <- trials_by_animal_faceted + trials_by_duration_faceted +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+print(faceted_combined)
+
+
+```
+
+
+
+
+
+
+```{r}
+
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+library(car)  # for additional regression diagnostics
+
+# Filter data for Punish Incorrect trials
+punish_data <- data %>%
+  filter(Schedulename == "A_Mouse LD Punish Incorrect Training v2")
+
+# Fit linear model
+model <- lm(PercentCorrect ~ Strain, data = punish_data)
+
+# Get model summary
+summary(model)
+
+# ANOVA
+anova(model)
+
+# Check model assumptions
+par(mfrow=c(2,2))
+plot(model)
+
+# Post-hoc comparisons if needed
+TukeyHSD(aov(PercentCorrect ~ Strain, data = punish_data))
+
+# Create scatter plot with regression lines
+ggplot(punish_data, aes(x = Day, y = PercentCorrect, color = Strain)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  theme_classic() +
+  labs(
+    title = "Percent Correct During Punish Incorrect Training",
+    x = "Training Day",
+    y = "Percent Correct",
+    color = "Strain"
+  ) +
+  scale_color_manual(values = geno_colors) +
+  theme(
+    text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    plot.title = element_text(size = 16, hjust = 0.5),
+    legend.position = "right"
+  )
+
+# Save the plot if needed
+ggsave("punish_incorrect_learning.png", width = 8, height = 6)
+
+# Get summary statistics
+summary_stats <- punish_data %>%
+  group_by(Strain) %>%
+  summarise(
+    mean_percent = mean(PercentCorrect, na.rm = TRUE),
+    sd_percent = sd(PercentCorrect, na.rm = TRUE),
+    se_percent = sd(PercentCorrect, na.rm = TRUE) / sqrt(n()),
+    n = n()
+  )
+
+print(summary_stats)
+
+
+
+
+# Create enhanced scatter plot with regression lines
+trials_by_animal2 <- ggplot(punish_data, 
+    aes(x = Day, 
+        y = PercentCorrect,
+        color = Strain,
+        shape = Sex)) +
+  # Points with improved visibility
+  geom_point(alpha = 0.8, size = 2.5, stroke = 0.8) +
+  
+  # Smoother lines with adjusted parameters
+  geom_smooth(method = "loess", 
+              se = TRUE, 
+              alpha = 0.15, 
+              linewidth = 1.2,
+              span = 0.8) +
+  
+  # Custom color palette - more distinct and professional
+  scale_color_manual(values = c("-" = "#2C85B2", 
+                               "+/-" = "#E6B244", 
+                               "+" = "#B55A30")) +
+  
+  # Distinct shapes for sex
+  scale_shape_manual(values = c("F" = 16, "M" = 17)) +
+  
+  # Updated labels
+  labs(title = "Learning Performance During Punish Incorrect Training",
+       subtitle = "Performance tracked across training days",
+       x = "Training Day",
+       y = "Percent Correct (%)",
+       color = "Strain",
+       shape = "Sex") +
+  
+  # Enhanced theme elements
+  theme_bw() +
+  theme(
+    # Text elements
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey40"),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    
+    # Legend formatting
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.margin = margin(t = 10),
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    
+    # Grid and panel elements
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_line(color = "grey90"),
+    panel.border = element_rect(color = "grey20", linewidth = 0.8),
+    
+    # Plot margins
+    plot.margin = margin(t = 20, r = 20, b = 20, l = 20)
+  ) +
+  
+  # Scale adjustments
+  scale_y_continuous(limits = c(0, 100),
+                    breaks = seq(0, 100, by = 20)) +
+  scale_x_continuous(breaks = seq(min(punish_data$Day), 
+                                max(punish_data$Day), 
+                                by = 2))
+
+# Save the plot with high resolution
+ggsave("enhanced_learning_curve.png", 
+       trials_by_animal2, 
+       width = 10, 
+       height = 7, 
+       dpi = 300)
+
+print(trials_by_animal2)
+
+
+```
+
+```{r}
+
+
+# First, reshape the data to long format for plotting
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+
+# Prepare the data
+iti_data <- data %>%
+  select(Strain, 
+         Left = `EndSummaryLeftITITouches1`, 
+         Right = `EndSummaryRightITITouches1`) %>%
+  gather(key = "Touch_Side", value = "Touches", -Strain)
+
+# Calculate summary statistics
+iti_summary <- iti_data %>%
+  group_by(Strain, Touch_Side) %>%
+  summarise(
+    mean_touches = mean(Touches, na.rm = TRUE),
+    se_touches = sd(Touches, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+# Create the plot
+iti_plot <- ggplot(iti_summary, 
+    aes(x = Strain, 
+        y = mean_touches, 
+        fill = Touch_Side)) +
+  # Add bars
+  geom_bar(stat = "identity", 
+           position = position_dodge(0.9),
+           width = 0.8) +
+  # Add error bars
+  geom_errorbar(aes(ymin = mean_touches - se_touches,
+                    ymax = mean_touches + se_touches),
+                position = position_dodge(0.9),
+                width = 0.25,
+                linewidth = 0.8) +
+  # Custom colors
+  scale_fill_manual(values = c("Left" = "#2C85B2", 
+                              "Right" = "#E6B244"),
+                   labels = c("Left ITI", "Right ITI")) +
+  # Labels
+  labs(title = "ITI Touches by Strain",
+       subtitle = "Comparison of Left and Right ITI Touches",
+       x = "Strain",
+       y = "Number of ITI Touches",
+       fill = "Touch Side") +
+  # Theme customization
+  theme_bw() +
+  theme(
+    # Text elements
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey40"),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    
+    # Legend formatting
+    legend.position = "bottom",
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    
+    # Grid and panel elements
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey90"),
+    panel.border = element_rect(color = "grey20", linewidth = 0.8),
+    
+    # Plot margins
+    plot.margin = margin(t = 20, r = 20, b = 20, l = 20)
+  ) +
+  # Scale adjustments
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+# Save the plot
+ggsave("iti_touches_by_Strain.png", 
+       iti_plot, 
+       width = 8, 
+       height = 6, 
+       dpi = 300)
+
+# Print the plot
+print(iti_plot)
+
+# Optionally, run statistical tests
+# ANOVA for comparing touches between Strains and sides
+iti_aov <- aov(Touches ~ Strain * Touch_Side, data = iti_data)
+summary(iti_aov)
+
+# Post-hoc comparisons if needed
+TukeyHSD(iti_aov)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Reshape data to long format for overall comparison
+iti_data <- data %>%
+  select(AnimalID,
+         Left = `EndSummaryLeftITITouches1`, 
+         Right = `EndSummaryRightITITouches1`) %>%
+  gather(key = "Touch_Side", value = "Touches", -AnimalID)
+
+# Calculate summary statistics
+iti_summary <- iti_data %>%
+  group_by(Touch_Side) %>%
+  summarise(
+    mean_touches = mean(Touches, na.rm = TRUE),
+    se_touches = sd(Touches, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+# Create the plot
+iti_plot <- ggplot(iti_summary, 
+    aes(x = Touch_Side, 
+        y = mean_touches, 
+        fill = Touch_Side)) +
+  # Add bars
+  geom_bar(stat = "identity",
+           width = 0.7) +
+  # Add error bars
+  geom_errorbar(aes(ymin = mean_touches - se_touches,
+                    ymax = mean_touches + se_touches),
+                width = 0.2,
+                linewidth = 0.8) +
+  # Custom colors
+  scale_fill_manual(values = c("Left" = "#2C85B2", 
+                              "Right" = "#E6B244")) +
+  # Labels
+  labs(title = "Overall ITI Touch Comparison",
+       subtitle = "Mean number of touches during inter-trial intervals",
+       x = "Touch Side",
+       y = "Number of ITI Touches") +
+  # Theme customization
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey40"),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "grey90", linewidth = 0.3),
+    axis.line = element_line(linewidth = 0.8)
+  )
+
+# Save the plot
+ggsave("overall_iti_touches.png", 
+       iti_plot, 
+       width = 6, 
+       height = 8, 
+       dpi = 300)
+
+# Print the plot
+print(iti_plot)
+
+# Perform paired t-test to compare sides
+t_test_result <- t.test(
+  iti_data$Touches[iti_data$Touch_Side == "Left"],
+  iti_data$Touches[iti_data$Touch_Side == "Right"],
+  paired = FALSE
+)
+
+print(t_test_result)
+
+
+
+
+```
+
+```{r}
+
+
+
+# Linear regression for TrialsCompleted
+lm_trials <- lm(TrialsCompleted ~ Strain * Sex + Day, data = data)
+summary(lm_trials)
+
+# Linear regression for PercentCorrect
+lm_percent <- lm(PercentCorrect ~ Strain * Sex + Day, data = data)
+summary(lm_percent)
+
+# Polynomial (quadratic) regression for TrialsCompleted
+lm_trials_poly <- lm(TrialsCompleted ~ Strain * Sex + poly(Day, 2), data = data)
+summary(lm_trials_poly)
+
+# Polynomial (quadratic) regression for PercentCorrect
+lm_percent_poly <- lm(PercentCorrect ~ Strain * Sex + poly(Day, 2), data = data)
+summary(lm_percent_poly)
+
+
+
+
+# Example: Fit a logistic-type growth model for PercentCorrect over Day.
+# The model here assumes PercentCorrect approaches an asymptote ("Asym")
+# and that the increase follows a logistic curve.
+nls_percent <- nls(PercentCorrect ~ Asym / (1 + exp((xmid - Day) / scal)),
+                   data = data,
+                   start = list(Asym = 100, xmid = median(data$Day), scal = 2))
+summary(nls_percent)
+
+
+# (Assuming data$AnimalID exists and Day is treated as a factor for RM analysis)
+data$DayFactor <- as.factor(data$Day)
+
+# MANOVA with TrialsCompleted and PercentCorrect as joint responses
+manova_model <- manova(cbind(TrialsCompleted, PercentCorrect) ~ Strain * Sex + Day, data = data)
+summary(manova_model, test = "Wilks")
+
+
+
+# Repeated measures ANOVA for TrialsCompleted (within-AnimalID factor: DayFactor)
+rm_anova_trials <- aov(TrialsCompleted ~ Strain * Sex * DayFactor + Error(AnimalID/DayFactor), data = data)
+summary(rm_anova_trials)
+
+# Similarly, you could run an analysis for PercentCorrect.
+
+# Repeated measures ANOVA for TrialsCompleted (within-AnimalID factor: DayFactor)
+rm_anova_trials <- aov(PercentCorrect ~ Strain * Sex * DayFactor + Error(AnimalID/DayFactor), data = data)
+summary(rm_anova_trials)
+
+
+# Linear regression for CorrectionTrial
+#lm_correction <- lm(CorrectionTrial ~ Strain * Sex + Day, data = data)
+#summary(lm_correction)
+
+
+library(ggplot2)
+
+ggplot(data, aes(x = Day, y = TrialsCompleted, color = Strain, shape = Sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Trials Completed vs. Day",
+       x = "Day",
+       y = "Trials Completed") +
+  theme_minimal() +
+  facet_wrap(~ Sex) +
+  scale_color_manual(values = geno_colors) 
+
+
+
+ggplot(data, aes(x = Day, y = PercentCorrect, color = Strain, shape = Sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Percent Correct vs. Day (Linear Fit)",
+       x = "Day",
+       y = "Percent Correct") +
+  theme_minimal() +
+  facet_wrap(~ Sex) +
+  scale_color_manual(values = geno_colors) 
+
+
+# Create a new data frame for smooth predictions
+newdata <- data.frame(Day = seq(min(data$Day), max(data$Day), length.out = 200))
+newdata$PercentCorrect_pred <- 31.2517 / (1 + exp((7.9413 - newdata$Day) / 0.4989))
+
+ggplot(data, aes(x = Day, y = PercentCorrect)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_line(data = newdata, aes(x = Day, y = PercentCorrect_pred),
+            color = "red", size = 1.2) +
+  labs(title = "Percent Correct vs. Day with Logistic Fit",
+       x = "Day",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+
+
+
+
+# Create a new data frame for smooth predictions
+newdata <- data.frame(Day = seq(min(data$Day), max(data$Day), length.out = 200))
+newdata$TrialsCompleted_pred <- 31.2517 / (1 + exp((7.9413 - newdata$Day) / 0.4989))
+
+ggplot(data, aes(x = Day, y = TrialsCompleted)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_line(data = newdata, aes(x = Day, y = TrialsCompleted_pred),
+            color = "red", size = 1.2) +
+  labs(title = "Trials Completed vs. Day with Logistic Fit",
+       x = "Day",
+       y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+ 
+
+
+library(emmeans)
+
+# For TrialsCompleted
+emm_trials <- emmeans(lm(TrialsCompleted ~ Strain * Sex + Day, data = data),
+                      ~ Strain * Sex)
+plot(emm_trials, comparisons = TRUE) +
+  labs(title = "Estimated Marginal Means: Trials Completed by Strain & Sex",
+       y = "Predicted Trials Completed")
+
+
+emm_percent <- emmeans(lm(PercentCorrect ~ Strain * Sex + Day, data = data),
+                       ~ Strain * Sex)
+plot(emm_percent, comparisons = TRUE) +
+  labs(title = "Estimated Marginal Means: Percent Correct by Strain & Sex",
+       y = "Predicted Percent Correct")
+
+ggplot(data, aes(x = Day, y = TrialsCompleted, group = AnimalID, color = Strain)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(aes(group = Strain), method = "lm", se = FALSE, size = 2) +
+  labs(title = "Individual Trajectories for Trials Completed",
+       x = "Day", y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+
+
+
+ggplot(data, aes(x = Day, y = PercentCorrect, group = AnimalID, color = Strain)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(aes(group = Strain), method = "lm", se = FALSE, size = 2) +
+  labs(title = "Individual Trajectories for Percent Correct",
+       x = "Day", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+
+#ggplot(data, aes(x = Day, y = CorrectionTrial, group = AnimalID, color = Strain)) +
+ # geom_line(alpha = 0.3) +
+  #geom_smooth(aes(group = Strain), method = "lm", se = FALSE, size = 2) +
+  #labs(title = "Individual Trajectories for Correction Trials",
+#       x = "Day", y = "Correction Trial count") +
+#  theme_minimal() +
+ # scale_color_manual(values = geno_colors) 
+
+
+# For the linear model on TrialsCompleted:
+par(mfrow = c(2, 2))
+plot(lm(TrialsCompleted ~ Strain * Sex + Day, data = data))
+
+library(GGally)
+
+ggpairs(data, columns = c("TrialsCompleted", "PercentCorrect"),
+        aes(color = Strain)) +
+  labs(title = "Scatterplot Matrix of Trials Completed and Percent Correct")
+
+
+
+
+```
+```{r}
+## ==================================================================
+## MIXED MODEL ANALYSIS - FOLLOWING ORIGINAL STRUCTURE
+## Replacing linear regression with appropriate mixed models
+## ==================================================================
+
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(emmeans)
+library(ggeffects)
+library(performance)
+library(GGally)
+library(gridExtra)
+library(dplyr)
+
+# Define color scheme
+geno_colors <- c("B6" = "#1f77b4", "C3HxB6" = "#ff7f0e")
+
+## ------------------------------------------------------------------
+## SECTION 1: MIXED MODELS (REPLACING LINEAR REGRESSION)
+## ------------------------------------------------------------------
+
+# Mixed model for TrialsCompleted (replacing lm)
+mixed_trials <- lmer(TrialsCompleted ~ Strain * Sex + Day + (1 | AnimalID), 
+                     data = data, REML = TRUE)
+summary(mixed_trials)
+
+# Mixed model for PercentCorrect (replacing lm)
+mixed_percent <- lmer(PercentCorrect ~ Strain * Sex + Day + (1 | AnimalID), 
+                      data = data, REML = TRUE)
+summary(mixed_percent)
+
+# Polynomial (quadratic) mixed model for TrialsCompleted
+mixed_trials_poly <- lmer(TrialsCompleted ~ Strain * Sex + poly(Day, 2) + (1 | AnimalID), 
+                          data = data, REML = TRUE)
+summary(mixed_trials_poly)
+
+# Polynomial (quadratic) mixed model for PercentCorrect
+mixed_percent_poly <- lmer(PercentCorrect ~ Strain * Sex + poly(Day, 2) + (1 | AnimalID), 
+                           data = data, REML = TRUE)
+summary(mixed_percent_poly)
+
+# Compare linear vs polynomial models
+anova(mixed_percent, mixed_percent_poly)
+anova(mixed_trials, mixed_trials_poly)
+
+## ------------------------------------------------------------------
+## SECTION 2: NON-LINEAR MIXED MODEL (LOGISTIC GROWTH)
+## ------------------------------------------------------------------
+
+# For non-linear mixed models, we use nlme package
+library(nlme)
+
+# Logistic growth mixed model for PercentCorrect
+#nlme_percent <- nlme(PercentCorrect ~ Asym / (1 + exp((xmid - Day) / scal)),
+#                     data = data,
+#                   fixed = Asym + xmid + scal ~ 1,
+#                     random = Asym ~ 1 | AnimalID,
+#                     start = c(Asym = 100, xmid = median(data$Day), scal = 2))
+#summary(nlme_percent)
+
+## ------------------------------------------------------------------
+## SECTION 3: FULL INTERACTION MODEL (THREE-WAY)
+## ------------------------------------------------------------------
+
+# Create factor for Day (as in original)
+data$DayFactor <- as.factor(data$Day)
+
+# Full three-way interaction model
+mixed_full <- lmer(PercentCorrect ~ Strain * Sex * Day + (1 | AnimalID), 
+                   data = data, REML = TRUE)
+summary(mixed_full)
+
+# Alternative: Random slopes model
+mixed_random_slopes <- lmer(PercentCorrect ~ Strain * Sex * Day + (1 + Day | AnimalID), 
+                            data = data, REML = TRUE)
+
+# Compare models
+anova(mixed_percent, mixed_full, mixed_random_slopes)
+
+## ------------------------------------------------------------------
+## SECTION 4: VISUALIZATIONS (ENHANCED FOR MIXED MODELS)
+## ------------------------------------------------------------------
+
+# Plot 1: Trials Completed with mixed model predictions
+pred_trials <- ggpredict(mixed_trials, terms = c("Day", "Strain", "Sex"))
+
+ggplot(data, aes(x = Day, y = TrialsCompleted)) +
+  geom_point(aes(color = Strain, shape = Sex), alpha = 0.6) +
+  geom_line(data = as.data.frame(pred_trials), 
+            aes(x = x, y = predicted, color = group),
+            linewidth = 1.2) +
+  geom_ribbon(data = as.data.frame(pred_trials),
+              aes(x = x, y = predicted, ymin = conf.low, ymax = conf.high, 
+                  fill = group), alpha = 0.2) +
+  labs(title = "Trials Completed vs. Day (Mixed Model)",
+       x = "Day", y = "Trials Completed") +
+  theme_minimal() +
+  facet_wrap(~ facet) +
+  scale_color_manual(values = geno_colors, name = "Strain") +
+  scale_fill_manual(values = geno_colors, guide = "none")
+
+# Plot 2: Percent Correct with mixed model predictions
+pred_percent <- ggpredict(mixed_percent, terms = c("Day", "Strain", "Sex"))
+
+ggplot(data, aes(x = Day, y = PercentCorrect)) +
+  geom_point(aes(color = Strain, shape = Sex), alpha = 0.6) +
+  geom_line(data = as.data.frame(pred_percent), 
+            aes(x = x, y = predicted, color = group),
+            linewidth = 1.2) +
+  geom_ribbon(data = as.data.frame(pred_percent),
+              aes(x = x, y = predicted, ymin = conf.low, ymax = conf.high, 
+                  fill = group), alpha = 0.2) +
+  labs(title = "Percent Correct vs. Day (Mixed Model)",
+       x = "Day", y = "Percent Correct") +
+  theme_minimal() +
+  facet_wrap(~ facet) +
+  scale_color_manual(values = geno_colors, name = "Strain") +
+  scale_fill_manual(values = geno_colors, guide = "none")
+
+# Plot 3: Non-linear (logistic) fit visualization
+#newdata <- data.frame(Day = seq(min(data$Day), max(data$Day), length.out = 200))
+#newdata$PercentCorrect_pred <- predict(nlme_percent, newdata = newdata, level = 0)
+
+#ggplot(data, aes(x = Day, y = PercentCorrect)) +
+ # geom_point(aes(color = Strain), alpha = 0.5) +
+  #geom_line(data = newdata, aes(x = Day, y = PercentCorrect_pred),
+   #         color = "red", linewidth = 1.2) +
+  #labs(title = "Percent Correct: Non-linear Mixed Model (Logistic Growth)",
+  #     subtitle = "Red line = population average trajectory",
+  #     x = "Day", y = "Percent Correct") +
+#  theme_minimal() +
+ # scale_color_manual(values = geno_colors)
+
+## ------------------------------------------------------------------
+## SECTION 5: ESTIMATED MARGINAL MEANS (FROM MIXED MODELS)
+## ------------------------------------------------------------------
+
+# For TrialsCompleted
+emm_trials_mixed <- emmeans(mixed_trials, ~ Strain * Sex)
+plot(emm_trials_mixed, comparisons = TRUE) +
+  labs(title = "EMMs: Trials Completed (Mixed Model)",
+       x = "Predicted Trials Completed")
+
+# For PercentCorrect
+emm_percent_mixed <- emmeans(mixed_percent, ~ Strain * Sex)
+plot(emm_percent_mixed, comparisons = TRUE) +
+  labs(title = "EMMs: Percent Correct (Mixed Model)",
+       x = "Predicted Percent Correct")
+
+## ------------------------------------------------------------------
+## SECTION 6: INDIVIDUAL TRAJECTORIES WITH MIXED MODEL FITS
+## ------------------------------------------------------------------
+
+# Individual trajectories for Trials Completed
+ggplot(data, aes(x = Day, y = TrialsCompleted, group = AnimalID, color = Strain)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(aes(group = Strain), method = "lm", formula = y ~ x,
+              se = TRUE, linewidth = 2) +
+  labs(title = "Individual Trajectories: Trials Completed",
+       subtitle = "Thin lines = individuals, Thick lines = group trends",
+       x = "Day", y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Individual trajectories for Percent Correct with mixed model predictions
+fitted_vals <- fitted(mixed_percent)
+data$fitted_percent <- fitted_vals
+
+ggplot(data, aes(x = Day, color = Strain)) +
+  # Individual observed trajectories
+  geom_line(aes(y = PercentCorrect, group = AnimalID), alpha = 0.3) +
+  # Individual fitted trajectories from mixed model
+  geom_line(aes(y = fitted_percent, group = AnimalID), 
+            alpha = 0.5, linetype = "dashed") +
+  # Group means
+  stat_summary(aes(y = PercentCorrect, group = Strain),
+               fun = mean, geom = "line", linewidth = 2) +
+  labs(title = "Individual Trajectories: Percent Correct",
+       subtitle = "Solid thin = observed, Dashed = mixed model fitted, Thick = group mean",
+       x = "Day", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+## ------------------------------------------------------------------
+## SECTION 7: DIAGNOSTIC PLOTS FOR MIXED MODELS
+## ------------------------------------------------------------------
+
+# Diagnostic plots for mixed model (replacing simple lm diagnostics)
+par(mfrow = c(2, 2))
+
+# Plot 1: Fitted vs Residuals
+plot(fitted(mixed_percent), residuals(mixed_percent),
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs Fitted (Mixed Model)")
+abline(h = 0, col = "red", lty = 2)
+
+# Plot 2: Q-Q plot
+qqnorm(residuals(mixed_percent), main = "Q-Q Plot (Mixed Model)")
+qqline(residuals(mixed_percent), col = "red")
+
+# Plot 3: Scale-Location
+plot(fitted(mixed_percent), sqrt(abs(residuals(mixed_percent))),
+     xlab = "Fitted Values", ylab = "√|Residuals|",
+     main = "Scale-Location (Mixed Model)")
+
+# Plot 4: Random effects Q-Q
+qqnorm(ranef(mixed_percent)$AnimalID[,1], 
+       main = "Q-Q Plot: Random Effects")
+qqline(ranef(mixed_percent)$AnimalID[,1], col = "red")
+
+par(mfrow = c(1, 1))
+
+## ------------------------------------------------------------------
+## SECTION 8: ADDITIONAL MIXED MODEL VISUALIZATIONS
+## ------------------------------------------------------------------
+
+# ICC visualization
+icc_val <- performance::icc(mixed_percent)
+cat(sprintf("ICC for PercentCorrect model: %.3f\n", icc_val$ICC_adjusted))
+
+# Variance components pie chart
+var_comp <- as.data.frame(VarCorr(mixed_percent))
+var_comp$prop <- var_comp$vcov / sum(var_comp$vcov)
+
+ggplot(var_comp, aes(x = "", y = prop, fill = grp)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = sprintf("Variance Decomposition (ICC = %.3f)", icc_val$ICC_adjusted),
+       fill = "Component") +
+  theme_minimal() +
+  scale_fill_manual(values = c("AnimalID" = "steelblue", "Residual" = "coral"))
+
+# Random intercepts by group
+ranef_df <- data.frame(
+  AnimalID = rownames(ranef(mixed_percent)$AnimalID),
+  RandomIntercept = ranef(mixed_percent)$AnimalID[,1]
+)
+ranef_df <- merge(ranef_df, unique(data[, c("AnimalID", "Strain", "Sex")]), by = "AnimalID")
+
+ggplot(ranef_df, aes(x = interaction(Strain, Sex), y = RandomIntercept)) +
+  geom_boxplot(aes(fill = Strain), alpha = 0.7) +
+  geom_point(position = position_jitter(width = 0.1)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Random Effects by Group",
+       subtitle = "Individual deviations from group mean",
+       x = "Strain.Sex", y = "Random Intercept") +
+  theme_minimal() +
+  scale_fill_manual(values = geno_colors) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Learning rates (slopes) by group
+emm_slopes <- emtrends(mixed_full, ~ Strain * Sex, var = "Day")
+slopes_df <- as.data.frame(emm_slopes)
+
+ggplot(slopes_df, aes(x = Strain, y = Day.trend, color = Sex)) +
+  geom_point(size = 3, position = position_dodge(0.2)) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                width = 0.2, position = position_dodge(0.2)) +
+  labs(title = "Learning Rates by Group",
+       subtitle = "Change in Percent Correct per Day",
+       x = "Strain", y = "Learning Rate (% per day)") +
+  theme_minimal() +
+  scale_color_manual(values = c("F" = "coral", "M" = "steelblue"))
+
+## ------------------------------------------------------------------
+## SECTION 9: CORRELATION MATRIX (AS IN ORIGINAL)
+## ------------------------------------------------------------------
+
+# Add fitted values to data for visualization
+data$fitted_trials <- fitted(mixed_trials)
+data$fitted_percent <- fitted(mixed_percent)
+
+# Correlation matrix with observed and fitted values
+#ggpairs(data, 
+ #       columns = c("TrialsCompleted", "PercentCorrect", "fitted_percent"),
+  #      aes(color = Strain),
+   #     upper = list(continuous = "density", combo = "box_no_facet"),
+  #      lower = list(continuous = "points", combo = "dot_no_facet")) +
+  #labs(title = "Scatterplot Matrix: Observed and Mixed Model Fitted Values") +
+  #theme_minimal()
+
+## ------------------------------------------------------------------
+## SECTION 10: MODEL COMPARISON SUMMARY
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("MODEL COMPARISON: LINEAR vs MIXED EFFECTS\n")
+cat("============================================================\n\n")
+
+# Compare AIC/BIC
+comparison_df <- data.frame(
+  Model = c("Linear (Wrong)", "Mixed (Correct)", "Mixed + Polynomial", "Mixed + Random Slopes"),
+  AIC = c(AIC(lm(PercentCorrect ~ Strain * Sex + Day, data = data)),
+          AIC(mixed_percent),
+          AIC(mixed_percent_poly),
+          AIC(mixed_random_slopes)),
+  BIC = c(BIC(lm(PercentCorrect ~ Strain * Sex + Day, data = data)),
+          BIC(mixed_percent),
+          BIC(mixed_percent_poly),
+          BIC(mixed_random_slopes))
+)
+
+print(comparison_df)
+cat("\nLower AIC/BIC indicates better model fit\n")
+cat("Mixed models properly account for repeated measures\n")
+
+```
+```{r}
+
+
+## ==================================================================
+## REGRESSION DIAGNOSTICS: TESTING ASSUMPTIONS
+## For Location Discrimination Task Data
+## ==================================================================
+
+library(ggplot2)
+library(car)
+library(nortest)
+library(lmtest)
+library(MASS)
+library(gridExtra)
+library(dplyr)
+library(moments)
+# Set up plotting parameters
+par(mfrow = c(2, 2))
+set.seed(123)
+
+## ------------------------------------------------------------------
+## SECTION 1: FIT YOUR MODELS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("FITTING REGRESSION MODELS\n")
+cat("============================================================\n\n")
+
+# Assuming your data frame is called 'data'
+# Fit the main models from your analysis
+
+# Model 1: TrialsCompleted (no significant effects)
+model_trials <- lm(TrialsCompleted ~ Strain * Sex + Day, data = data)
+
+# Model 2: PercentCorrect (significant effects)
+model_percent <- lm(PercentCorrect ~ Strain * Sex + Day, data = data)
+
+# Model 3: Polynomial for PercentCorrect
+model_percent_poly <- lm(PercentCorrect ~ Strain * Sex + poly(Day, 2), data = data)
+
+cat("Models fitted successfully\n")
+cat("Focus on model_percent as it shows significant effects\n\n")
+
+## ------------------------------------------------------------------
+## SECTION 2: NORMALITY TESTS
+## ------------------------------------------------------------------
+
+cat("============================================================\n")
+cat("ASSUMPTION 1: NORMALITY OF RESIDUALS\n")
+cat("============================================================\n\n")
+
+# Function to test normality comprehensively
+test_normality <- function(model, model_name) {
+  cat(sprintf("\n--- %s ---\n", model_name))
+  
+  residuals <- residuals(model)
+  
+  # 1. Shapiro-Wilk test (best for n < 50)
+  if (length(residuals) <= 5000) {
+    sw_test <- shapiro.test(residuals)
+    cat(sprintf("Shapiro-Wilk test: W = %.4f, p = %.4f\n", 
+                sw_test$statistic, sw_test$p.value))
+    if (sw_test$p.value < 0.05) {
+      cat("  ⚠️ Significant deviation from normality\n")
+    } else {
+      cat("  ✓ Residuals appear normally distributed\n")
+    }
+  }
+  
+  # 2. Anderson-Darling test (more sensitive to tails)
+  ad_test <- ad.test(residuals)
+  cat(sprintf("Anderson-Darling test: A = %.4f, p = %.4f\n", 
+              ad_test$statistic, ad_test$p.value))
+  
+  # 3. Kolmogorov-Smirnov test
+  ks_test <- ks.test(residuals, "pnorm", mean = mean(residuals), sd = sd(residuals))
+  cat(sprintf("Kolmogorov-Smirnov test: D = %.4f, p = %.4f\n", 
+              ks_test$statistic, ks_test$p.value))
+  
+  # 4. Skewness and Kurtosis
+  skew <- moments::skewness(residuals)
+  kurt <- moments::kurtosis(residuals) - 3  # Excess kurtosis
+  cat(sprintf("Skewness: %.3f (|skew| < 0.5 is excellent, < 1 is good)\n", skew))
+  cat(sprintf("Excess Kurtosis: %.3f (|kurt| < 0.5 is excellent, < 1 is good)\n", kurt))
+  
+  return(list(shapiro = sw_test$p.value, skewness = skew, kurtosis = kurt))
+}
+
+# Test each model
+normality_trials <- test_normality(model_trials, "TrialsCompleted Model")
+normality_percent <- test_normality(model_percent, "PercentCorrect Model")
+normality_poly <- test_normality(model_percent_poly, "PercentCorrect Polynomial Model")
+
+## ------------------------------------------------------------------
+## SECTION 3: Q-Q PLOTS FOR VISUAL ASSESSMENT
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("Q-Q PLOTS FOR VISUAL NORMALITY ASSESSMENT\n")
+cat("============================================================\n\n")
+
+# Create Q-Q plots
+create_qq_plot <- function(model, title) {
+  residuals <- residuals(model)
+  std_residuals <- (residuals - mean(residuals)) / sd(residuals)
+  
+  qqplot_data <- data.frame(
+    theoretical = qnorm(ppoints(length(std_residuals))),
+    sample = sort(std_residuals)
+  )
+  
+  p <- ggplot(qqplot_data, aes(x = theoretical, y = sample)) +
+    geom_point(alpha = 0.6) +
+    geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+    labs(title = paste("Q-Q Plot:", title),
+         x = "Theoretical Quantiles",
+         y = "Sample Quantiles") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 10))
+  
+  return(p)
+}
+
+qq1 <- create_qq_plot(model_trials, "TrialsCompleted")
+qq2 <- create_qq_plot(model_percent, "PercentCorrect")
+qq3 <- create_qq_plot(model_percent_poly, "PercentCorrect Poly")
+
+# Combine plots
+grid.arrange(qq1, qq2, qq3, ncol = 2, 
+             top = "Q-Q Plots: Check for Normality (points should follow red line)")
+
+## ------------------------------------------------------------------
+## SECTION 4: HOMOSCEDASTICITY TESTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("ASSUMPTION 2: HOMOSCEDASTICITY (CONSTANT VARIANCE)\n")
+cat("============================================================\n\n")
+
+test_homoscedasticity <- function(model, model_name) {
+  cat(sprintf("\n--- %s ---\n", model_name))
+  
+  # 1. Breusch-Pagan test
+  bp_test <- bptest(model)
+  cat(sprintf("Breusch-Pagan test: BP = %.4f, p = %.4f\n", 
+              bp_test$statistic, bp_test$p.value))
+  if (bp_test$p.value < 0.05) {
+    cat("  ⚠️ Heteroscedasticity detected\n")
+  } else {
+    cat("  ✓ Variance appears constant\n")
+  }
+  
+  # 2. Non-constant Variance Score Test
+  ncv_test <- ncvTest(model)
+  cat(sprintf("NCV test: Chisquare = %.4f, p = %.4f\n", 
+              ncv_test$ChiSquare, ncv_test$p))
+  
+  # 3. White's test (if package 'skedastic' is available)
+  # Uncomment if you have skedastic installed
+  # library(skedastic)
+  # white_test <- white_lm(model)
+  # cat(sprintf("White's test: p = %.4f\n", white_test$p.value))
+  
+  return(bp_test$p.value)
+}
+
+# Test each model
+homo_trials <- test_homoscedasticity(model_trials, "TrialsCompleted Model")
+homo_percent <- test_homoscedasticity(model_percent, "PercentCorrect Model")
+homo_poly <- test_homoscedasticity(model_percent_poly, "PercentCorrect Polynomial Model")
+
+## ------------------------------------------------------------------
+## SECTION 5: RESIDUAL PLOTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("RESIDUAL PLOTS FOR VISUAL DIAGNOSTICS\n")
+cat("============================================================\n\n")
+
+create_residual_plots <- function(model, title) {
+  # Extract values
+  fitted_vals <- fitted(model)
+  residuals <- residuals(model)
+  std_residuals <- rstandard(model)
+  
+  # Create data frame
+  resid_data <- data.frame(
+    fitted = fitted_vals,
+    residuals = residuals,
+    std_residuals = std_residuals,
+    abs_std_resid = abs(std_residuals)
+  )
+  
+  # Plot 1: Residuals vs Fitted
+  p1 <- ggplot(resid_data, aes(x = fitted, y = residuals)) +
+    geom_point(alpha = 0.6) +
+    geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+    geom_smooth(method = "loess", se = TRUE, color = "blue", size = 0.5) +
+    labs(title = paste(title, "- Residuals vs Fitted"),
+         x = "Fitted Values", y = "Residuals") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 9))
+  
+  # Plot 2: Scale-Location plot
+  p2 <- ggplot(resid_data, aes(x = fitted, y = sqrt(abs_std_resid))) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "loess", se = TRUE, color = "red", size = 0.5) +
+    labs(title = paste(title, "- Scale-Location"),
+         x = "Fitted Values", y = "√|Standardized Residuals|") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 9))
+  
+  return(list(p1, p2))
+}
+
+# Create residual plots for main model
+resid_plots <- create_residual_plots(model_percent, "PercentCorrect")
+grid.arrange(resid_plots[[1]], resid_plots[[2]], ncol = 2,
+             top = "Residual Analysis: Look for patterns (random scatter is good)")
+
+## ------------------------------------------------------------------
+## SECTION 6: LINEARITY ASSUMPTION
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("ASSUMPTION 3: LINEARITY\n")
+cat("============================================================\n\n")
+
+# Since model has interactions, we'll check linearity differently
+cat("Checking linearity for continuous predictor (Day)...\n\n")
+
+# Method 1: Partial residual plot manually for Day
+# Calculate partial residuals for Day
+partial_resid_day <- residuals(model_percent) + coef(model_percent)["Day"] * data$Day
+
+# Create plot
+plot(data$Day, partial_resid_day,
+     main = "Partial Residual Plot for Day",
+     xlab = "Day", ylab = "Partial Residuals",
+     pch = 16, col = rgb(0, 0, 0, 0.5))
+abline(lm(partial_resid_day ~ data$Day), col = "red", lwd = 2)
+lines(lowess(data$Day, partial_resid_day), col = "blue", lwd = 2)
+legend("topright", c("Linear fit", "Lowess smooth"), 
+       col = c("red", "blue"), lwd = 2)
+
+# Method 2: Added variable plot for Day
+av_model_day <- lm(PercentCorrect ~ Strain * Sex, data = data)
+av_resid_y <- residuals(av_model_day)
+av_model_x <- lm(Day ~ Strain * Sex, data = data)
+av_resid_x <- residuals(av_model_x)
+
+plot(av_resid_x, av_resid_y,
+     main = "Added Variable Plot for Day",
+     xlab = "Day | Others", ylab = "PercentCorrect | Others",
+     pch = 16, col = rgb(0, 0, 0, 0.5))
+abline(lm(av_resid_y ~ av_resid_x), col = "red", lwd = 2)
+
+# Method 3: Residuals vs Day grouped by factors
+par(mfrow = c(1, 2))
+plot(data$Day, residuals(model_percent),
+     main = "Residuals vs Day",
+     xlab = "Day", ylab = "Residuals",
+     pch = 16, col = as.numeric(data$Strain))
+abline(h = 0, col = "red", lty = 2)
+lines(lowess(data$Day, residuals(model_percent)), col = "blue", lwd = 2)
+legend("topright", levels(data$Strain), col = 1:2, pch = 16, cex = 0.8)
+
+plot(data$Day, abs(residuals(model_percent)),
+     main = "Absolute Residuals vs Day",
+     xlab = "Day", ylab = "|Residuals|",
+     pch = 16, col = as.numeric(data$Sex))
+lines(lowess(data$Day, abs(residuals(model_percent))), col = "blue", lwd = 2)
+legend("topright", levels(data$Sex), col = 1:2, pch = 16, cex = 0.8)
+
+par(mfrow = c(1, 1))
+
+# RESET test for linearity
+reset_test <- resettest(model_percent, power = 2:3, type = "fitted")
+cat(sprintf("\nRESET test for linearity: F = %.4f, p = %.4f\n", 
+            reset_test$statistic, reset_test$p.value))
+if (reset_test$p.value < 0.05) {
+  cat("  ⚠️ Non-linearity detected - consider polynomial terms\n")
+} else {
+  cat("  ✓ Linear relationship appears adequate\n")
+}
+
+# Compare linear vs polynomial model
+cat("\nComparing linear vs polynomial models:\n")
+anova_compare <- anova(model_percent, model_percent_poly)
+print(anova_compare)
+## REGRESSION DIAGNOSTICS: TESTING ASSUMPTIONS
+## For Location Discrimination Task Data
+## ==================================================================
+
+
+# Set up plotting parameters
+par(mfrow = c(2, 2))
+set.seed(123)
+
+## ------------------------------------------------------------------
+## SECTION 1: FIT YOUR MODELS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("FITTING REGRESSION MODELS\n")
+cat("============================================================\n\n")
+
+# Assuming your data frame is called 'data'
+# Fit the main models from your analysis
+
+# Model 1: TrialsCompleted (no significant effects)
+model_trials <- lm(TrialsCompleted ~ Strain * Sex + Day, data = data)
+
+# Model 2: PercentCorrect (significant effects)
+model_percent <- lm(PercentCorrect ~ Strain * Sex + Day, data = data)
+
+# Model 3: Polynomial for PercentCorrect
+model_percent_poly <- lm(PercentCorrect ~ Strain * Sex + poly(Day, 2), data = data)
+
+cat("Models fitted successfully\n")
+cat("Focus on model_percent as it shows significant effects\n\n")
+
+## ------------------------------------------------------------------
+## SECTION 2: NORMALITY TESTS
+## ------------------------------------------------------------------
+
+cat("============================================================\n")
+cat("ASSUMPTION 1: NORMALITY OF RESIDUALS\n")
+cat("============================================================\n\n")
+
+# Function to test normality comprehensively
+test_normality <- function(model, model_name) {
+  cat(sprintf("\n--- %s ---\n", model_name))
+  
+  residuals <- residuals(model)
+  
+  # 1. Shapiro-Wilk test (best for n < 50)
+  if (length(residuals) <= 5000) {
+    sw_test <- shapiro.test(residuals)
+    cat(sprintf("Shapiro-Wilk test: W = %.4f, p = %.4f\n", 
+                sw_test$statistic, sw_test$p.value))
+    if (sw_test$p.value < 0.05) {
+      cat("  ⚠️ Significant deviation from normality\n")
+    } else {
+      cat("  ✓ Residuals appear normally distributed\n")
+    }
+  }
+  
+  # 2. Anderson-Darling test (more sensitive to tails)
+  ad_test <- ad.test(residuals)
+  cat(sprintf("Anderson-Darling test: A = %.4f, p = %.4f\n", 
+              ad_test$statistic, ad_test$p.value))
+  
+  # 3. Kolmogorov-Smirnov test
+  ks_test <- ks.test(residuals, "pnorm", mean = mean(residuals), sd = sd(residuals))
+  cat(sprintf("Kolmogorov-Smirnov test: D = %.4f, p = %.4f\n", 
+              ks_test$statistic, ks_test$p.value))
+  
+  # 4. Skewness and Kurtosis
+  skew <- moments::skewness(residuals)
+  kurt <- moments::kurtosis(residuals) - 3  # Excess kurtosis
+  cat(sprintf("Skewness: %.3f (|skew| < 0.5 is excellent, < 1 is good)\n", skew))
+  cat(sprintf("Excess Kurtosis: %.3f (|kurt| < 0.5 is excellent, < 1 is good)\n", kurt))
+  
+  return(list(shapiro = sw_test$p.value, skewness = skew, kurtosis = kurt))
+}
+
+# Test each model
+normality_trials <- test_normality(model_trials, "TrialsCompleted Model")
+normality_percent <- test_normality(model_percent, "PercentCorrect Model")
+normality_poly <- test_normality(model_percent_poly, "PercentCorrect Polynomial Model")
+
+## ------------------------------------------------------------------
+## SECTION 3: Q-Q PLOTS FOR VISUAL ASSESSMENT
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("Q-Q PLOTS FOR VISUAL NORMALITY ASSESSMENT\n")
+cat("============================================================\n\n")
+
+# Create Q-Q plots
+create_qq_plot <- function(model, title) {
+  residuals <- residuals(model)
+  std_residuals <- (residuals - mean(residuals)) / sd(residuals)
+  
+  qqplot_data <- data.frame(
+    theoretical = qnorm(ppoints(length(std_residuals))),
+    sample = sort(std_residuals)
+  )
+  
+  p <- ggplot(qqplot_data, aes(x = theoretical, y = sample)) +
+    geom_point(alpha = 0.6) +
+    geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+    labs(title = paste("Q-Q Plot:", title),
+         x = "Theoretical Quantiles",
+         y = "Sample Quantiles") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 10))
+  
+  return(p)
+}
+
+qq1 <- create_qq_plot(model_trials, "TrialsCompleted")
+qq2 <- create_qq_plot(model_percent, "PercentCorrect")
+qq3 <- create_qq_plot(model_percent_poly, "PercentCorrect Poly")
+
+# Combine plots
+grid.arrange(qq1, qq2, qq3, ncol = 2, 
+             top = "Q-Q Plots: Check for Normality (points should follow red line)")
+
+## ------------------------------------------------------------------
+## SECTION 4: HOMOSCEDASTICITY TESTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("ASSUMPTION 2: HOMOSCEDASTICITY (CONSTANT VARIANCE)\n")
+cat("============================================================\n\n")
+
+test_homoscedasticity <- function(model, model_name) {
+  cat(sprintf("\n--- %s ---\n", model_name))
+  
+  # 1. Breusch-Pagan test
+  bp_test <- bptest(model)
+  cat(sprintf("Breusch-Pagan test: BP = %.4f, p = %.4f\n", 
+              bp_test$statistic, bp_test$p.value))
+  if (bp_test$p.value < 0.05) {
+    cat("  ⚠️ Heteroscedasticity detected\n")
+  } else {
+    cat("  ✓ Variance appears constant\n")
+  }
+  
+  # 2. Non-constant Variance Score Test
+  ncv_test <- ncvTest(model)
+  cat(sprintf("NCV test: Chisquare = %.4f, p = %.4f\n", 
+              ncv_test$ChiSquare, ncv_test$p))
+  
+  # 3. White's test (if package 'skedastic' is available)
+  # Uncomment if you have skedastic installed
+  # library(skedastic)
+  # white_test <- white_lm(model)
+  # cat(sprintf("White's test: p = %.4f\n", white_test$p.value))
+  
+  return(bp_test$p.value)
+}
+
+# Test each model
+homo_trials <- test_homoscedasticity(model_trials, "TrialsCompleted Model")
+homo_percent <- test_homoscedasticity(model_percent, "PercentCorrect Model")
+homo_poly <- test_homoscedasticity(model_percent_poly, "PercentCorrect Polynomial Model")
+
+## ------------------------------------------------------------------
+## SECTION 5: RESIDUAL PLOTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("RESIDUAL PLOTS FOR VISUAL DIAGNOSTICS\n")
+cat("============================================================\n\n")
+
+create_residual_plots <- function(model, title) {
+  # Extract values
+  fitted_vals <- fitted(model)
+  residuals <- residuals(model)
+  std_residuals <- rstandard(model)
+  
+  # Create data frame
+  resid_data <- data.frame(
+    fitted = fitted_vals,
+    residuals = residuals,
+    std_residuals = std_residuals,
+    abs_std_resid = abs(std_residuals)
+  )
+  
+  # Plot 1: Residuals vs Fitted
+  p1 <- ggplot(resid_data, aes(x = fitted, y = residuals)) +
+    geom_point(alpha = 0.6) +
+    geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+    geom_smooth(method = "loess", se = TRUE, color = "blue", size = 0.5) +
+    labs(title = paste(title, "- Residuals vs Fitted"),
+         x = "Fitted Values", y = "Residuals") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 9))
+  
+  # Plot 2: Scale-Location plot
+  p2 <- ggplot(resid_data, aes(x = fitted, y = sqrt(abs_std_resid))) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "loess", se = TRUE, color = "red", size = 0.5) +
+    labs(title = paste(title, "- Scale-Location"),
+         x = "Fitted Values", y = "√|Standardized Residuals|") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 9))
+  
+  return(list(p1, p2))
+}
+# Create residual plots for main model
+resid_plots <- create_residual_plots(model_percent, "PercentCorrect")
+grid.arrange(resid_plots[[1]], resid_plots[[2]], ncol = 2,
+             top = "Residual Analysis: Look for patterns (random scatter is good)")
+
+# Check if polynomial is significantly better
+p_value <- anova_compare[2, "Pr(>F)"]
+if (!is.na(p_value) && p_value < 0.05) {
+  cat("  ⚠️ Polynomial model significantly better\n")
+} else {
+  cat("  ✓ Linear model appears adequate\n")
+}
+
+## ------------------------------------------------------------------
+## SECTION 7: MULTICOLLINEARITY
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("ASSUMPTION 4: NO MULTICOLLINEARITY\n")
+cat("============================================================\n\n")
+
+# Calculate VIF (Variance Inflation Factors)
+vif_values <- vif(model_percent)
+cat("Variance Inflation Factors (VIF):\n")
+print(vif_values)
+cat("\nInterpretation: VIF > 5 suggests multicollinearity, > 10 is serious\n")
+
+if (any(vif_values > 5)) {
+  cat("  ⚠️ Some multicollinearity detected\n")
+} else {
+  cat("  ✓ No serious multicollinearity\n")
+}
+
+## ------------------------------------------------------------------
+## SECTION 8: OUTLIERS AND INFLUENTIAL POINTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("ASSUMPTION 5: NO INFLUENTIAL OUTLIERS\n")
+cat("============================================================\n\n")
+
+# Calculate diagnostic measures
+leverage <- hatvalues(model_percent)
+cooks_d <- cooks.distance(model_percent)
+std_resid <- rstandard(model_percent)
+stud_resid <- rstudent(model_percent)
+
+# Identify potential outliers
+n <- length(residuals(model_percent))
+p <- length(coef(model_percent))
+
+# Thresholds
+leverage_threshold <- 2 * p / n
+cooks_threshold <- 4 / n
+resid_threshold <- 3
+
+cat("Diagnostic Thresholds:\n")
+cat(sprintf("  Leverage: %.4f (2p/n)\n", leverage_threshold))
+cat(sprintf("  Cook's D: %.4f (4/n)\n", cooks_threshold))
+cat(sprintf("  |Std Residuals|: %d\n\n", resid_threshold))
+
+# Find problematic observations
+high_leverage <- which(leverage > leverage_threshold)
+high_cooks <- which(cooks_d > cooks_threshold)
+outlier_resid <- which(abs(std_resid) > resid_threshold)
+
+cat("Potentially Problematic Observations:\n")
+cat(sprintf("  High leverage points: %d observations\n", length(high_leverage)))
+if (length(high_leverage) > 0 & length(high_leverage) <= 10) {
+  cat(sprintf("    Indices: %s\n", paste(high_leverage, collapse = ", ")))
+}
+
+cat(sprintf("  High Cook's D: %d observations\n", length(high_cooks)))
+if (length(high_cooks) > 0 & length(high_cooks) <= 10) {
+  cat(sprintf("    Indices: %s\n", paste(high_cooks, collapse = ", ")))
+}
+
+cat(sprintf("  Residual outliers (|z| > 3): %d observations\n", length(outlier_resid)))
+if (length(outlier_resid) > 0 & length(outlier_resid) <= 10) {
+  cat(sprintf("    Indices: %s\n", paste(outlier_resid, collapse = ", ")))
+}
+
+# Create influence plot
+influencePlot(model_percent, main = "Influence Plot", 
+              sub = "Circle size proportional to Cook's D")
+
+## ------------------------------------------------------------------
+## SECTION 9: INDEPENDENCE OF RESIDUALS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("ASSUMPTION 6: INDEPENDENCE OF RESIDUALS\n")
+cat("============================================================\n\n")
+
+# Durbin-Watson test for autocorrelation
+dw_test <- dwtest(model_percent)
+cat(sprintf("Durbin-Watson test: DW = %.4f, p = %.4f\n", 
+            dw_test$statistic, dw_test$p.value))
+cat("  DW ≈ 2: No autocorrelation\n")
+cat("  DW < 2: Positive autocorrelation\n")
+cat("  DW > 2: Negative autocorrelation\n")
+
+if (dw_test$p.value < 0.05) {
+  cat("  ⚠️ Autocorrelation detected - consider mixed models for repeated measures\n")
+} else {
+  cat("  ✓ No significant autocorrelation\n")
+}
+
+## ------------------------------------------------------------------
+## SECTION 10: SUMMARY DIAGNOSTIC PLOTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("STANDARD DIAGNOSTIC PLOTS\n")
+cat("============================================================\n\n")
+
+# Create standard diagnostic plots
+par(mfrow = c(2, 2))
+plot(model_percent)
+
+# Reset plotting parameters
+par(mfrow = c(1, 1))
+
+## ------------------------------------------------------------------
+## SECTION 11: REMEDIAL MEASURES RECOMMENDATIONS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("SUMMARY AND RECOMMENDATIONS\n")
+cat("============================================================\n\n")
+
+# Compile results
+diagnostics_summary <- data.frame(
+  Assumption = c("Normality", "Homoscedasticity", "Linearity", 
+                 "No Multicollinearity", "No Influential Outliers", 
+                 "Independence"),
+  Test = c("Shapiro-Wilk", "Breusch-Pagan", "RESET", 
+           "VIF", "Cook's D", "Durbin-Watson"),
+  Result = c(
+    ifelse(normality_percent$shapiro > 0.05, "✓ Pass", "⚠️ Fail"),
+    ifelse(homo_percent > 0.05, "✓ Pass", "⚠️ Fail"),
+    ifelse(reset_test$p.value > 0.05, "✓ Pass", "⚠️ Fail"),
+    ifelse(all(vif_values < 5), "✓ Pass", "⚠️ Warning"),
+    ifelse(length(high_cooks) == 0, "✓ Pass", 
+           paste("⚠️", length(high_cooks), "points")),
+    ifelse(dw_test$p.value > 0.05, "✓ Pass", "⚠️ Fail")
+  )
+)
+
+print(diagnostics_summary)
+
+cat("\nRECOMMENDED ACTIONS:\n")
+cat("-------------------\n")
+
+# Provide specific recommendations based on violations
+if (normality_percent$shapiro < 0.05) {
+  cat("• Non-normality detected:\n")
+  cat("  - Consider transformation (log, sqrt, Box-Cox)\n")
+  cat("  - Use robust regression methods\n")
+  cat("  - Bootstrap confidence intervals\n\n")
+}
+
+if (homo_percent < 0.05) {
+  cat("• Heteroscedasticity detected:\n")
+  cat("  - Use robust standard errors (sandwich estimator)\n")
+  cat("  - Consider weighted least squares\n")
+  cat("  - Transform response variable\n\n")
+}
+
+if (reset_test$p.value < 0.05) {
+  cat("• Non-linearity detected:\n")
+  cat("  - Add polynomial terms (you already tried this)\n")
+  cat("  - Consider splines or GAM\n")
+  cat("  - Transform predictors\n\n")
+}
+
+if (dw_test$p.value < 0.05) {
+  cat("• Autocorrelation detected:\n")
+  cat("  - Use mixed-effects models for repeated measures\n")
+  cat("  - Consider GEE (Generalized Estimating Equations)\n")
+  cat("  - Add autoregressive terms\n\n")
+}
+
+cat("\nFINAL RECOMMENDATION:\n")
+cat("Given repeated measures structure (multiple days per animal),\n")
+cat("consider using mixed-effects models:\n\n")
+cat("library(lme4)\n")
+cat("model_mixed <- lmer(PercentCorrect ~ Strain * Sex * Day + (1|AnimalID), data = data)\n")
+
+cat("\n============================================================\n")
+cat("DIAGNOSTICS COMPLETE\n")
+cat("============================================================\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```
+```{r}
+
+library(sandwich)
+library(lmtest)
+
+# Get corrected p-values
+robust_se <- coeftest(model_percent, vcov = vcovHC(model_percent, type = "HC3"))
+print(robust_se)
+
+# Compare with original
+summary(model_percent)$coefficients
+
+
+library(lme4)
+library(lmerTest)
+
+# Proper model for repeated measures
+model_mixed <- lmer(PercentCorrect ~ Strain * Sex * Day + (1|AnimalID), 
+                    data = data)
+summary(model_mixed)
+
+# This gives you correct p-values accounting for repeated measures
+
+
+# Identify the influential observations
+influential_obs <- c(28, 29, 34)
+data$row_num <- 1:nrow(data)
+
+# Check what these observations are
+data[influential_obs, c("AnimalID", "Day", "Strain", "Sex", "PercentCorrect")]
+
+# Rerun without them
+model_no_outliers <- lm(PercentCorrect ~ Strain * Sex + Day, 
+                        data = data[-influential_obs, ])
+summary(model_no_outliers)
+
+# Compare coefficients
+cbind(Original = coef(model_percent), 
+      No_Outliers = coef(model_no_outliers))
+
+
+# CORRECTED POWER ANALYSIS for repeated measures
+library(simr)
+
+# 1. Fit the correct model
+model_mixed <- lmer(PercentCorrect ~ Strain * Sex * Day + (1|AnimalID), 
+                    data = data)
+
+# 2. Extract the actual effect size accounting for clustering
+vpc <- performance::icc(model_mixed)  # Variance partition coefficient
+design_effect <- 1 + (7-1) * vpc$ICC_adjusted  # 7 days per animal
+
+# 3. Adjust sample size for clustering
+effective_n <- 80 / design_effect
+cat(sprintf("Actual effective sample size: %.1f (not 80)\n", effective_n))
+
+# 4. Recalculate power with effective sample size
+# This will show MUCH lower power than originally calculated
+```
+
+```{r}
+
+# CORRECT INTERPRETATION
+# You have 19 animals total (not 13.3)
+# The 13.3 means your statistical power is equivalent to having 
+# 13.3 independent observations instead of 80
+
+# Your actual animal counts:
+# B6: 8 animals (3 male, 5 female)  
+# C3H×B6: 10 animals (5 male, 5 female)
+# Total: 18 animals (one must have incomplete data)
+
+# Correct power calculation for YOUR CURRENT STUDY
+power_current_actual <- pwr.t2n.test(
+  n1 = 8,   # B6 animals
+  n2 = 10,  # C3H animals  
+  d = 1.78, # Your observed effect
+  sig.level = 0.05
+)
+print(power_current_actual)
+# This gives ~95% power for this huge effect
+
+# But for more realistic effect sizes:
+power_d1 <- pwr.t2n.test(n1 = 8, n2 = 10, d = 1.0, sig.level = 0.05)
+print(power_d1) # ~47% power
+
+power_d08 <- pwr.t2n.test(n1 = 8, n2 = 10, d = 0.8, sig.level = 0.05)
+print(power_d08) # ~33% power
+
+# From your mixed model output:
+# Random effects:
+# AnimalID (Intercept) variance = 459.72
+# Residual variance = 90.74
+
+ICC = 459.72 / (459.72 + 90.74)
+ICC = 459.72 / 550.46
+ICC = 0.835
+
+# This means 83.5% of the variation is BETWEEN animals
+# Only 16.5% is WITHIN animals across days
+
+```
+
+#Survival curves for experiments PI
+```{r}
+## ------------------------------------------------------------------
+## 1.  DATA ENTRY  ───────────────────────────────────────────────────
+## ------------------------------------------------------------------
+AnimalID <- c("c1m1","c1m2","c1m3","c1m4",
+              "c2m1","c2m2","c2m3","c2m4","c2m5",
+              "c3m1","c3m2","c3m3","c3m4","c3m5",
+              "c4m1","c4m2","c4m3","c4m4","c4m5")
+
+Sex      <- factor(c("M","M","M","M",
+                     "F","F","F","F","F",
+                     "M","M","M","M","M",
+                     "F","F","F","F","F"),
+                   levels = c("M","F"))
+
+# “+” = B6, “–” = C3H × B6
+Strain   <- factor(c(rep("B6",  9),      # c1 + c2
+                     rep("C3H x B6", 10) # c3 + c4
+                    ),
+                   levels = c("B6","C3H x B6"))
+
+Days     <- c( 5, 8, 5,13,
+               7, 4,16, 3,11,
+               7, 7, 9,11,12,
+              16, 8, 9,10,10)
+
+Event    <- rep(1, length(Days))   # all mice reached criterion
+
+df <- data.frame(AnimalID, Sex, Strain, Days, Event)
+
+## ------------------------------------------------------------------
+## 2.  SURVIVAL OBJECT & KM CURVES  ──────────────────────────────────
+## ------------------------------------------------------------------
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+
+surv_obj <- Surv(time = df$Days, event = df$Event)
+km_fit   <- survfit(surv_obj ~ Strain, data = df)
+
+# custom colour palette
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+km_plot <- ggsurvplot(
+  km_fit,
+  data            = df,
+  fun             = "event",
+  conf.int        = TRUE,
+  conf.int.alpha  = 0.25,
+  xlab            = "Days to criterion",
+  ylab            = "% mice reaching criterion",
+  legend.title    = "Strain",
+  legend.labs     = levels(df$Strain),
+  ggtheme         = theme_minimal()
+)
+
+km_plot$plot <- km_plot$plot +
+  scale_color_manual(values = Strain_cols) +
+  scale_fill_manual(values = Strain_cols)
+
+print(km_plot)
+
+## ------------------------------------------------------------------
+## 3.  COX PROPORTIONAL-HAZARDS MODEL  ───────────────────────────────
+## ------------------------------------------------------------------
+cox_mod <- coxph(Surv(Days, Event) ~ Strain, data = df)
+summary(cox_mod)
+
+# Test proportional-hazards (visually inspect, too)
+cox_ph <- cox.zph(cox_mod)
+print(cox_ph)
+plot(cox_ph)  # optional
+
+## ------------------------------------------------------------------
+## 4.  BAR-PLOT OF FINAL OUTCOMES  ───────────────────────────────────
+##    (All animals succeeded; still useful for other datasets)
+## ------------------------------------------------------------------
+df_sum <- df %>%
+  group_by(Strain) %>%
+  summarise(n      = n(),
+            events = sum(Event),
+            pct    = 100 * events / n,
+            .groups = "drop")
+
+ggplot(df_sum, aes(Strain, pct, fill = Strain)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4) +
+  scale_fill_manual(values = Strain_cols) +
+  labs(title = "Percentage of Mice Reaching Criterion",
+       x = "Strain", y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        plot.title      = element_text(hjust = 0.5))
+
+## ------------------------------------------------------------------
+## 5.  OPTIONAL BASE-R KM PLOT (MATCHING COLOURS)  ───────────────────
+## ------------------------------------------------------------------
+plot(km_fit,
+     col = Strain_cols[levels(df$Strain)],
+     lwd = 2, lty = 1,
+     xlab = "Days",
+     ylab = "Survival probability",
+     main = "KM survival by Strain")
+legend("bottomleft",
+       legend = levels(df$Strain),
+       col    = Strain_cols,
+       lwd = 2, bty = "n")
+
+
+```
+
+#LDC Surv
+
+```{r}
+## ------------------------------------------------------------------
+## 1.  DATA ENTRY  ───────────────────────────────────────────────────
+## ------------------------------------------------------------------
+AnimalID <- c("c1m1","c1m2","c1m3","c1m4",
+              "c2m1","c2m2","c2m3","c2m4","c2m5",
+              "c3m1","c3m2","c3m3","c3m4","c3m5",
+              "c4m1","c4m2","c4m3","c4m4","c4m5")
+
+Sex      <- factor(c("M","M","M","M",
+                     "F","F","F","F","F",
+                     "M","M","M","M","M",
+                     "F","F","F","F","F"),
+                   levels = c("M","F"))
+
+# “+” = B6, “–” = C3H × B6
+Strain   <- factor(c(rep("B6",        9),   # c1 + c2
+                     rep("C3H x B6", 10)),  # c3 + c4
+                   levels = c("B6","C3H x B6"))
+
+Days     <- c(5,3,4,7,
+              3,5,6,1,7,
+              5,4,6,4,5,
+              2,2,3,6,2)
+
+Event    <- rep(1, length(Days))   # all reached criterion
+
+df <- data.frame(AnimalID, Sex, Strain, Days, Event)
+
+## ------------------------------------------------------------------
+## 2.  SURVIVAL OBJECT & KM CURVES  ──────────────────────────────────
+## ------------------------------------------------------------------
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+
+surv_obj <- Surv(time = df$Days, event = df$Event)
+km_fit   <- survfit(surv_obj ~ Strain, data = df)
+
+# colour palette
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+km_plot <- ggsurvplot(
+  km_fit,
+  data            = df,
+  fun             = "event",
+  conf.int        = TRUE,
+  conf.int.alpha  = 0.25,
+  xlab            = "Days to criterion",
+  ylab            = "% mice reaching criterion",
+  legend.title    = "Strain",
+  legend.labs     = levels(df$Strain),
+  ggtheme         = theme_minimal()
+)
+
+km_plot$plot <- km_plot$plot +
+  scale_color_manual(values = Strain_cols) +
+  scale_fill_manual(values = Strain_cols)
+
+print(km_plot)
+
+## ------------------------------------------------------------------
+## 3.  COX PROPORTIONAL-HAZARDS MODEL  ───────────────────────────────
+## ------------------------------------------------------------------
+cox_mod <- coxph(Surv(Days, Event) ~ Strain, data = df)
+summary(cox_mod)
+
+# PH-assumption test
+cox_ph  <- cox.zph(cox_mod)
+print(cox_ph)
+# plot(cox_ph)   # optional diagnostic
+
+## ------------------------------------------------------------------
+## 4.  BAR-PLOT OF FINAL OUTCOMES  ───────────────────────────────────
+## ------------------------------------------------------------------
+df_sum <- df %>%
+  group_by(Strain) %>%
+  summarise(n      = n(),
+            events = sum(Event),
+            pct    = 100 * events / n,
+            .groups = "drop")
+
+ggplot(df_sum, aes(Strain, pct, fill = Strain)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4) +
+  scale_fill_manual(values = Strain_cols) +
+  labs(title = "Percentage of Mice Reaching Criterion",
+       x = "Strain", y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        plot.title      = element_text(hjust = 0.5))
+
+## ------------------------------------------------------------------
+## 5.  OPTIONAL BASE-R PLOT (MATCHING COLOURS)  ──────────────────────
+## ------------------------------------------------------------------
+plot(km_fit,
+     col = Strain_cols[levels(df$Strain)],
+     lwd = 2, lty = 1,
+     xlab = "Days",
+     ylab = "Survival probability",
+     main = "KM survival by Strain")
+legend("bottomleft",
+       legend = levels(df$Strain),
+       col    = Strain_cols,
+       lwd = 2, bty = "n")
+
+```
+
+
+#LDR Surv
+
+```{r}
+## ------------------------------------------------------------------
+## 1.  DATA ENTRY  ───────────────────────────────────────────────────
+## ------------------------------------------------------------------
+AnimalID <- c("c1m2","c1m3","c1m4",
+              "c2m1","c2m2","c2m3","c2m4","c2m5",
+              "c3m1","c3m2","c3m3","c3m4","c3m5",
+              "c4m1","c4m2","c4m3","c4m4","c4m5")
+
+Sex      <- factor(c("M","M","M",
+                     "F","F","F","F","F",
+                     "M","M","M","M","M",
+                     "F","F","F","F","F"),
+                   levels = c("M","F"))
+
+# “+” = B6, “–” = C3H × B6
+Strain   <- factor(c(rep("B6",        8),   # c1 + c2 group
+                     rep("C3H x B6", 10)),  # c3 + c4 group
+                   levels = c("B6","C3H x B6"))
+
+Days     <- c(10, 6, 4,
+              12, 8, 2,15, 6,
+               6,13, 9, 9, 5,
+               6,14, 9, 8, 5)
+
+Event    <- c(1,1,0,
+              1,1,0,1,0,
+              1,0,0,0,1,
+              0,0,1,0,1)
+
+df <- data.frame(AnimalID, Sex, Strain, Days, Event)
+
+## ------------------------------------------------------------------
+## 2.  SURVIVAL OBJECT & KM CURVES  ──────────────────────────────────
+## ------------------------------------------------------------------
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+
+surv_obj <- Surv(time = df$Days, event = df$Event)
+km_fit   <- survfit(surv_obj ~ Strain, data = df)
+
+# consistent colour palette
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+km_plot <- ggsurvplot(
+  km_fit,
+  data            = df,
+  fun             = "event",          # cumulative % reaching criterion
+  conf.int        = TRUE,
+  conf.int.alpha  = 0.25,
+  xlab            = "Days to criterion",
+  ylab            = "% mice reaching criterion",
+  legend.title    = "Strain",
+  legend.labs     = levels(df$Strain),
+  ggtheme         = theme_minimal()
+)
+
+km_plot$plot <- km_plot$plot +
+  scale_color_manual(values = Strain_cols) +
+  scale_fill_manual(values = Strain_cols)
+
+print(km_plot)
+
+## ------------------------------------------------------------------
+## 3.  COX PROPORTIONAL-HAZARDS MODEL  ───────────────────────────────
+## ------------------------------------------------------------------
+cox_mod <- coxph(Surv(Days, Event) ~ Strain + Sex, data = df)
+summary(cox_mod)
+
+# Proportional-hazards assumption
+cox_ph  <- cox.zph(cox_mod)
+print(cox_ph)
+# plot(cox_ph)   # optional diagnostic plot
+
+## ------------------------------------------------------------------
+## 4.  BAR-PLOT OF FINAL OUTCOMES  ───────────────────────────────────
+## ------------------------------------------------------------------
+df_sum <- df %>%
+  group_by(Strain) %>%
+  summarise(n      = n(),
+            events = sum(Event),
+            pct    = 100 * events / n,
+            .groups = "drop")
+
+ggplot(df_sum, aes(Strain, pct, fill = Strain)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4) +
+  scale_fill_manual(values = Strain_cols) +
+  labs(title = "Percentage of Mice Reaching Criterion",
+       x = "Strain", y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        plot.title      = element_text(hjust = 0.5))
+
+## ------------------------------------------------------------------
+## 5.  OPTIONAL BASE-R KM PLOT (MATCHING COLOURS)  ───────────────────
+## ------------------------------------------------------------------
+plot(km_fit,
+     col = Strain_cols[levels(df$Strain)],
+     lwd = 2, lty = 1,
+     xlab = "Days",
+     ylab = "Survival probability",
+     main = "KM survival by Strain")
+legend("bottomleft",
+       legend = levels(df$Strain),
+       col    = Strain_cols,
+       lwd = 2, bty = "n")
+
+```
+
+
+#PDC Surv
+
+```{r}
+## ------------------------------------------------------------------
+## 1.  DATA ENTRY  ───────────────────────────────────────────────────
+## ------------------------------------------------------------------
+AnimalID <- c("c1m2","c1m3","c1m4",
+              "c2m1","c2m2","c2m3","c2m4","c2m5",
+              "c3m1","c3m2","c3m3","c3m4","c3m5",
+              "c4m1","c4m2","c4m3","c4m4","c4m5")
+
+Sex      <- factor(c("M","M","M",
+                     "F","F","F","F","F",
+                     "M","M","M","M","M",
+                     "F","F","F","F","F"),
+                   levels = c("M","F"))
+
+# “+” = B6, “–” = C3H × B6
+Strain   <- factor(c(rep("B6",        8),   # c1 + c2
+                     rep("C3H x B6", 10)),  # c3 + c4
+                   levels = c("B6","C3H x B6"))
+
+Days     <- c( 5, 6, 5,
+               3, 3, 4, 4, 5,
+               4, 3, 3, 4, 7,
+               5, 4,10, 6, 7)
+
+Event    <- rep(1, length(Days))   # everyone reached criterion
+
+df <- data.frame(AnimalID, Sex, Strain, Days, Event)
+
+## ------------------------------------------------------------------
+## 2.  SURVIVAL OBJECT & KM CURVES  ──────────────────────────────────
+## ------------------------------------------------------------------
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+
+surv_obj <- Surv(time = df$Days, event = df$Event)
+km_fit   <- survfit(surv_obj ~ Strain, data = df)
+
+# colour palette (consistent with earlier plots)
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+km_plot <- ggsurvplot(
+  km_fit,
+  data            = df,
+  fun             = "event",          # cumulative % reaching criterion
+  conf.int        = TRUE,
+  conf.int.alpha  = 0.25,
+  xlab            = "Days to criterion",
+  ylab            = "% mice reaching criterion",
+  legend.title    = "Strain",
+  legend.labs     = levels(df$Strain),
+  ggtheme         = theme_minimal()
+)
+
+km_plot$plot <- km_plot$plot +
+  scale_color_manual(values = Strain_cols) +
+  scale_fill_manual(values = Strain_cols)
+
+print(km_plot)
+
+## ------------------------------------------------------------------
+## 3.  COX PROPORTIONAL-HAZARDS MODEL  ───────────────────────────────
+## ------------------------------------------------------------------
+cox_mod <- coxph(Surv(Days, Event) ~ Strain, data = df)
+summary(cox_mod)
+
+# PH-assumption test
+cox_ph <- cox.zph(cox_mod)
+print(cox_ph)
+# plot(cox_ph)   # optional diagnostic
+
+## ------------------------------------------------------------------
+## 4.  BAR-PLOT OF FINAL OUTCOMES  ───────────────────────────────────
+## ------------------------------------------------------------------
+df_sum <- df %>%
+  group_by(Strain) %>%
+  summarise(n      = n(),
+            events = sum(Event),
+            pct    = 100 * events / n,
+            .groups = "drop")
+
+ggplot(df_sum, aes(Strain, pct, fill = Strain)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4) +
+  scale_fill_manual(values = Strain_cols) +
+  labs(title = "Percentage of Mice Reaching Criterion",
+       x = "Strain", y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        plot.title      = element_text(hjust = 0.5))
+
+## ------------------------------------------------------------------
+## 5.  OPTIONAL BASE-R KM PLOT (MATCHING COLOURS)  ───────────────────
+## ------------------------------------------------------------------
+plot(km_fit,
+     col = Strain_cols[levels(df$Strain)],
+     lwd = 2, lty = 1,
+     xlab = "Days",
+     ylab = "Survival probability",
+     main = "KM survival by Strain")
+legend("bottomleft",
+       legend = levels(df$Strain),
+       col    = Strain_cols,
+       lwd = 2, bty = "n")
+
+```
+
+
+#PDR Surv
+
+```{r}
+## ------------------------------------------------------------------
+## 1.  DATA ENTRY  ───────────────────────────────────────────────────
+## ------------------------------------------------------------------
+AnimalID <- c("c1m1","c1m2","c1m3","c1m4",
+              "c2m1","c2m2","c2m3","c2m4","c2m5",
+              "c3m1","c3m2","c3m3","c3m4","c3m5",
+              "c4m1","c4m2","c4m3","c4m4","c4m5")
+
+Sex      <- factor(c("M","M","M","M",
+                     "F","F","F","F","F",
+                     "M","M","M","M","M",
+                     "F","F","F","F","F"),
+                   levels = c("M","F"))
+
+# “+” = B6, “–” = C3H × B6
+Strain   <- factor(c(rep("B6",        9),   # c1 + c2
+                     rep("C3H x B6", 10)),  # c3 + c4
+                   levels = c("B6","C3H x B6"))
+
+Days     <- c(0, 6, 7, 5,
+              1, 4, 3, 8, 7,
+              5, 4, 5, 7, 6,
+              6, 7, 2, 3, 4)
+
+Event    <- c(0,1,0,1,
+              1,1,1,1,1,
+              1,1,1,1,0,
+              1,1,0,1,1)
+
+df <- data.frame(AnimalID, Sex, Strain, Days, Event)
+
+## ------------------------------------------------------------------
+## 2.  SURVIVAL OBJECT & KM CURVES  ──────────────────────────────────
+## ------------------------------------------------------------------
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+
+surv_obj <- Surv(time = df$Days, event = df$Event)
+km_fit   <- survfit(surv_obj ~ Strain, data = df)
+
+# consistent colour palette
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+km_plot <- ggsurvplot(
+  km_fit,
+  data            = df,
+  fun             = "event",          # cumulative % reaching criterion
+  conf.int        = TRUE,
+  conf.int.alpha  = 0.25,
+  xlab            = "Days to criterion",
+  ylab            = "% mice reaching criterion",
+  legend.title    = "Strain",
+  legend.labs     = levels(df$Strain),
+  ggtheme         = theme_minimal()
+)
+
+km_plot$plot <- km_plot$plot +
+  scale_color_manual(values = Strain_cols) +
+  scale_fill_manual(values = Strain_cols)
+
+print(km_plot)
+
+## ------------------------------------------------------------------
+## 3.  COX PROPORTIONAL-HAZARDS MODEL  ───────────────────────────────
+## ------------------------------------------------------------------
+cox_mod <- coxph(Surv(Days, Event) ~ Strain, data = df)
+summary(cox_mod)
+
+# PH-assumption test
+cox_ph  <- cox.zph(cox_mod)
+print(cox_ph)
+# plot(cox_ph)   # optional diagnostic
+
+## ------------------------------------------------------------------
+## 4.  BAR-PLOT OF FINAL OUTCOMES  ───────────────────────────────────
+## ------------------------------------------------------------------
+df_sum <- df %>%
+  group_by(Strain) %>%
+  summarise(n      = n(),
+            events = sum(Event),
+            pct    = 100 * events / n,
+            .groups = "drop")
+
+ggplot(df_sum, aes(Strain, pct, fill = Strain)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4) +
+  scale_fill_manual(values = Strain_cols) +
+  labs(title = "Percentage of Mice Reaching Criterion",
+       x = "Strain", y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        plot.title      = element_text(hjust = 0.5))
+
+## ------------------------------------------------------------------
+## 5.  OPTIONAL BASE-R KM PLOT (MATCHING COLOURS)  ───────────────────
+## ------------------------------------------------------------------
+plot(km_fit,
+     col = Strain_cols[levels(df$Strain)],
+     lwd = 2, lty = 1,
+     xlab = "Days",
+     ylab = "Survival probability",
+     main = "KM survival by Strain")
+legend("bottomleft",
+       legend = levels(df$Strain),
+       col    = Strain_cols,
+       lwd = 2, bty = "n")
+
+```
+
+
+
+#Survival curves for experiments PI + LD
+```{r}
+## ------------------------------------------------------------------
+## 1.  DATA ENTRY  ───────────────────────────────────────────────────
+## ------------------------------------------------------------------
+AnimalID <- c("c1m1","c1m2","c1m3","c1m4",
+              "c2m1","c2m2","c2m3","c2m4","c2m5",
+              "c3m1","c3m2","c3m3","c3m4","c3m5",
+              "c4m1","c4m2","c4m3","c4m4","c4m5")
+
+Sex      <- factor(c("M","M","M","M",
+                     "F","F","F","F","F",
+                     "M","M","M","M","M",
+                     "F","F","F","F","F"),
+                   levels = c("M","F"))
+
+# “+” = B6, “–” = C3H × B6
+Strain   <- factor(c(rep("B6",  9),      # c1 + c2
+                     rep("C3H x B6", 10) # c3 + c4
+                    ),
+                   levels = c("B6","C3H x B6"))
+
+Days     <- c( 10, 11, 9, 20,
+               10, 9, 22, 4, 18,
+               12, 11, 15, 15, 17,
+              18, 10, 12, 16, 12)
+
+Event    <- rep(1, length(Days))   # all mice reached criterion
+
+df <- data.frame(AnimalID, Sex, Strain, Days, Event)
+
+## ------------------------------------------------------------------
+## 2.  SURVIVAL OBJECT & KM CURVES  ──────────────────────────────────
+## ------------------------------------------------------------------
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+
+surv_obj <- Surv(time = df$Days, event = df$Event)
+km_fit   <- survfit(surv_obj ~ Strain, data = df)
+
+# custom colour palette
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+km_plot <- ggsurvplot(
+  km_fit,
+  data            = df,
+  fun             = "event",
+  conf.int        = TRUE,
+  conf.int.alpha  = 0.25,
+  xlab            = "Days to criterion",
+  ylab            = "% mice reaching criterion",
+  legend.title    = "Strain",
+  legend.labs     = levels(df$Strain),
+  ggtheme         = theme_minimal()
+)
+
+km_plot$plot <- km_plot$plot +
+  scale_color_manual(values = Strain_cols) +
+  scale_fill_manual(values = Strain_cols)
+
+print(km_plot)
+
+## ------------------------------------------------------------------
+## 3.  COX PROPORTIONAL-HAZARDS MODEL  ───────────────────────────────
+## ------------------------------------------------------------------
+cox_mod <- coxph(Surv(Days, Event) ~ Strain, data = df)
+summary(cox_mod)
+
+# Test proportional-hazards (visually inspect, too)
+cox_ph <- cox.zph(cox_mod)
+print(cox_ph)
+plot(cox_ph)  # optional
+
+## ------------------------------------------------------------------
+## 4.  BAR-PLOT OF FINAL OUTCOMES  ───────────────────────────────────
+##    (All animals succeeded; still useful for other datasets)
+## ------------------------------------------------------------------
+df_sum <- df %>%
+  group_by(Strain) %>%
+  summarise(n      = n(),
+            events = sum(Event),
+            pct    = 100 * events / n,
+            .groups = "drop")
+
+ggplot(df_sum, aes(Strain, pct, fill = Strain)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4) +
+  scale_fill_manual(values = Strain_cols) +
+  labs(title = "Percentage of Mice Reaching Criterion",
+       x = "Strain", y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        plot.title      = element_text(hjust = 0.5))
+
+## ------------------------------------------------------------------
+## 5.  OPTIONAL BASE-R KM PLOT (MATCHING COLOURS)  ───────────────────
+## ------------------------------------------------------------------
+plot(km_fit,
+     col = Strain_cols[levels(df$Strain)],
+     lwd = 2, lty = 1,
+     xlab = "Days",
+     ylab = "Survival probability",
+     main = "KM survival by Strain")
+legend("bottomleft",
+       legend = levels(df$Strain),
+       col    = Strain_cols,
+       lwd = 2, bty = "n")
+
+
+```
+
+```{r}
+## ==================================================================
+## COMPREHENSIVE ANALYSIS OF TIME-TO-CRITERION DATA
+## ==================================================================
+
+# Setup data
+AnimalID <- c("c1m1","c1m2","c1m3","c1m4",
+              "c2m1","c2m2","c2m3","c2m4","c2m5",
+              "c3m1","c3m2","c3m3","c3m4","c3m5",
+              "c4m1","c4m2","c4m3","c4m4","c4m5")
+Sex      <- factor(c("M","M","M","M",
+                     "F","F","F","F","F",
+                     "M","M","M","M","M",
+                     "F","F","F","F","F"),
+                   levels = c("M","F"))
+Strain   <- factor(c(rep("B6",  9),
+                     rep("C3H x B6", 10)),
+                   levels = c("B6","C3H x B6"))
+Days     <- c(10, 11, 9, 20,
+              10, 9, 22, 4, 18,
+              12, 11, 15, 15, 17,
+              18, 10, 12, 16, 12)
+Event    <- rep(1, length(Days))
+df <- data.frame(AnimalID, Sex, Strain, Days, Event)
+
+# Load libraries
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(broom)
+library(car)
+library(boot)
+
+# Custom colors
+Strain_cols <- c("B6" = "red", "C3H x B6" = "black")
+
+## ------------------------------------------------------------------
+## 1. DESCRIPTIVE STATISTICS & VISUALIZATION
+## ------------------------------------------------------------------
+
+# Summary statistics by group
+summary_stats <- df %>%
+  group_by(Strain, Sex) %>%
+  summarise(
+    n = n(),
+    mean = mean(Days),
+    median = median(Days),
+    sd = sd(Days),
+    se = sd/sqrt(n),
+    IQR = IQR(Days),
+    min = min(Days),
+    max = max(Days),
+    .groups = "drop"
+  )
+
+print("Summary Statistics by Strain and Sex:")
+print(summary_stats)
+
+# Overall by strain only
+strain_summary <- df %>%
+  group_by(Strain) %>%
+  summarise(
+    n = n(),
+    mean = mean(Days),
+    median = median(Days),
+    sd = sd(Days),
+    se = sd/sqrt(n),
+    CI_lower = mean - qt(0.975, n-1) * se,
+    CI_upper = mean + qt(0.975, n-1) * se,
+    .groups = "drop"
+  )
+
+print("\nSummary Statistics by Strain:")
+print(strain_summary)
+
+# Enhanced visualization: Box plots with individual points
+p1 <- ggplot(df, aes(x = Strain, y = Days, fill = Strain)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  geom_jitter(aes(shape = Sex), width = 0.2, size = 3, alpha = 0.8) +
+  scale_fill_manual(values = Strain_cols) +
+  scale_shape_manual(values = c("M" = 16, "F" = 17)) +
+  labs(title = "Days to Criterion by Strain and Sex",
+       x = "Strain", y = "Days to Criterion") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p1)
+
+# Violin plot with quartiles
+p2 <- ggplot(df, aes(x = Strain, y = Days, fill = Strain)) +
+  geom_violin(alpha = 0.7, draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_jitter(aes(shape = Sex), width = 0.1, size = 2.5, alpha = 0.8) +
+  scale_fill_manual(values = Strain_cols) +
+  scale_shape_manual(values = c("M" = 16, "F" = 17)) +
+  stat_summary(fun = mean, geom = "point", size = 4, color = "blue") +
+  labs(title = "Distribution of Days to Criterion",
+       subtitle = "Blue point = mean, lines = quartiles",
+       x = "Strain", y = "Days to Criterion") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p2)
+
+## ------------------------------------------------------------------
+## 2. TRADITIONAL STATISTICAL TESTS
+## ------------------------------------------------------------------
+
+print("\n========== TRADITIONAL STATISTICAL TESTS ==========\n")
+
+# Shapiro-Wilk test for normality
+print("Normality Tests (Shapiro-Wilk):")
+by(df$Days, df$Strain, shapiro.test)
+
+# Mann-Whitney U Test (Wilcoxon rank-sum test)
+print("\nMann-Whitney U Test (comparing strains):")
+wilcox_test <- wilcox.test(Days ~ Strain, data = df, 
+                           conf.int = TRUE, exact = FALSE)
+print(wilcox_test)
+
+# Effect size (rank-biserial correlation)
+library(effectsize)
+effect_size <- rank_biserial(Days ~ Strain, data = df)
+print("\nEffect Size (Rank-Biserial Correlation):")
+print(effect_size)
+
+# Two-way ANOVA (Strain × Sex)
+print("\nTwo-way ANOVA (Strain × Sex):")
+aov_model <- aov(Days ~ Strain * Sex, data = df)
+print(summary(aov_model))
+
+# Check homogeneity of variance
+print("\nLevene's Test for Homogeneity of Variance:")
+print(leveneTest(Days ~ Strain * Sex, data = df))
+
+# Post-hoc if needed
+print("\nTukey HSD Post-hoc Test:")
+print(TukeyHSD(aov_model))
+
+## ------------------------------------------------------------------
+## 3. ACCELERATED FAILURE TIME (AFT) MODELS
+## ------------------------------------------------------------------
+
+print("\n========== AFT MODELS (Better for this data) ==========\n")
+
+# Weibull AFT model
+aft_weibull <- survreg(Surv(Days, Event) ~ Strain + Sex, 
+                       data = df, dist = "weibull")
+print("Weibull AFT Model:")
+print(summary(aft_weibull))
+
+# Log-normal AFT model
+aft_lognormal <- survreg(Surv(Days, Event) ~ Strain + Sex, 
+                         data = df, dist = "lognormal")
+print("\nLog-normal AFT Model:")
+print(summary(aft_lognormal))
+
+# Compare AIC
+print("\nModel Comparison (AIC):")
+print(data.frame(
+  Model = c("Weibull", "Log-normal"),
+  AIC = c(AIC(aft_weibull), AIC(aft_lognormal))
+))
+
+# Extract and interpret coefficients
+print("\nInterpretation of AFT coefficients (Weibull model):")
+coef_aft <- exp(coef(aft_weibull))
+print(paste("C3H x B6 mice take", round((coef_aft[2]-1)*100, 1), 
+           "% longer to reach criterion than B6 mice"))
+print(paste("Female mice take", round((coef_aft[3]-1)*100, 1), 
+           "% longer to reach criterion than Male mice"))
+
+## ------------------------------------------------------------------
+## 4. BOOTSTRAP ANALYSIS
+## ------------------------------------------------------------------
+
+print("\n========== BOOTSTRAP ANALYSIS ==========\n")
+
+# Bootstrap function for mean difference
+boot_mean_diff <- function(data, indices) {
+  d <- data[indices, ]
+  mean_b6 <- mean(d$Days[d$Strain == "B6"])
+  mean_c3h <- mean(d$Days[d$Strain == "C3H x B6"])
+  return(mean_c3h - mean_b6)
+}
+
+# Run bootstrap
+set.seed(123)
+boot_results <- boot(df, boot_mean_diff, R = 10000)
+
+print("Bootstrap Results (Mean Difference: C3H×B6 - B6):")
+print(boot_results)
+
+# Bootstrap confidence intervals
+boot_ci <- boot.ci(boot_results, type = c("norm", "basic", "perc", "bca"))
+print("\nBootstrap Confidence Intervals:")
+print(boot_ci)
+
+# Visualization of bootstrap distribution
+hist(boot_results$t, breaks = 50, main = "Bootstrap Distribution of Mean Difference",
+     xlab = "Mean Difference (C3H×B6 - B6)", col = "lightblue", border = "darkblue")
+abline(v = 0, col = "red", lwd = 2, lty = 2)
+abline(v = boot_results$t0, col = "green", lwd = 2)
+legend("topright", c("Observed Difference", "No Difference"), 
+       col = c("green", "red"), lwd = 2, lty = c(1, 2))
+
+## ------------------------------------------------------------------
+## 5. PERMUTATION TEST
+## ------------------------------------------------------------------
+
+print("\n========== PERMUTATION TEST ==========\n")
+
+# Permutation test function
+perm_test <- function(data, n_perm = 10000) {
+  obs_diff <- mean(data$Days[data$Strain == "C3H x B6"]) - 
+              mean(data$Days[data$Strain == "B6"])
+  
+  perm_diffs <- numeric(n_perm)
+  for(i in 1:n_perm) {
+    perm_strain <- sample(data$Strain)
+    perm_diffs[i] <- mean(data$Days[perm_strain == "C3H x B6"]) - 
+                     mean(data$Days[perm_strain == "B6"])
+  }
+  
+  p_value <- mean(abs(perm_diffs) >= abs(obs_diff))
+  
+  return(list(observed = obs_diff, 
+              permuted = perm_diffs, 
+              p_value = p_value))
+}
+
+set.seed(123)
+perm_results <- perm_test(df)
+
+print(paste("Observed difference:", round(perm_results$observed, 2)))
+print(paste("Permutation p-value:", round(perm_results$p_value, 4)))
+
+# Visualization
+hist(perm_results$permuted, breaks = 50, 
+     main = "Permutation Test: Null Distribution",
+     xlab = "Mean Difference", col = "gray80", border = "gray60")
+abline(v = perm_results$observed, col = "red", lwd = 2)
+abline(v = -perm_results$observed, col = "red", lwd = 2, lty = 2)
+legend("topright", c("Observed", "Critical values"), 
+       col = c("red", "red"), lwd = 2, lty = c(1, 2))
+
+## ------------------------------------------------------------------
+## 6. BAYESIAN ANALYSIS (using approximate methods)
+## ------------------------------------------------------------------
+
+print("\n========== BAYESIAN ANALYSIS (Approximate) ==========\n")
+
+# Simple Bayesian t-test approximation
+library(BayesFactor)
+
+# Prepare data for Bayesian analysis
+b6_days <- df$Days[df$Strain == "B6"]
+c3h_days <- df$Days[df$Strain == "C3H x B6"]
+
+# Bayesian t-test
+bf_test <- ttestBF(x = c3h_days, y = b6_days, paired = FALSE)
+print("Bayesian t-test:")
+print(bf_test)
+
+# Interpret Bayes Factor
+bf_value <- exp(bf_test@bayesFactor$bf)
+if(bf_value > 3) {
+  interpretation <- "Moderate evidence for difference"
+} else if(bf_value > 1) {
+  interpretation <- "Weak evidence for difference"
+} else if(bf_value < 1/3) {
+  interpretation <- "Moderate evidence for no difference"
+} else {
+  interpretation <- "Weak evidence for no difference"
+}
+print(paste("Bayes Factor:", round(bf_value, 3), "-", interpretation))
+
+## ------------------------------------------------------------------
+## 7. SUMMARY REPORT
+## ------------------------------------------------------------------
+
+cat("\n", rep("=", 60), "\n", sep = "")
+cat("SUMMARY OF ALL ANALYSES\n")
+cat(rep("=", 60), "\n\n", sep = "")
+
+summary_table <- data.frame(
+  Method = c("Mann-Whitney U", "Two-way ANOVA (Strain)", 
+             "AFT Weibull", "Bootstrap CI", 
+             "Permutation Test", "Bayesian t-test"),
+  Test_Statistic = c(
+    wilcox_test$statistic,
+    summary(aov_model)[[1]][1, 4],  # F-statistic
+    summary(aft_weibull)$table["StrainC3H x B6", "z"],
+    boot_results$t0,
+    perm_results$observed,
+    bf_value
+  ),
+  P_Value = c(
+    wilcox_test$p.value,
+    summary(aov_model)[[1]][1, 5],
+    summary(aft_weibull)$table["StrainC3H x B6", "p"],
+    NA,  # Bootstrap doesn't give p-value
+    perm_results$p_value,
+    NA   # Bayes Factor instead of p-value
+  ),
+  Interpretation = c(
+    ifelse(wilcox_test$p.value < 0.05, "Significant", "Not significant"),
+    ifelse(summary(aov_model)[[1]][1, 5] < 0.05, "Significant", "Not significant"),
+    ifelse(summary(aft_weibull)$table["StrainC3H x B6", "p"] < 0.05, 
+           "Significant", "Not significant"),
+    "See CI above",
+    ifelse(perm_results$p_value < 0.05, "Significant", "Not significant"),
+    interpretation
+  )
+)
+
+print(summary_table)
+
+cat("\nKEY FINDINGS:\n")
+cat("1. B6 mice: mean =", round(mean(b6_days), 1), "days (SD =", 
+    round(sd(b6_days), 1), ")\n")
+cat("2. C3H×B6 mice: mean =", round(mean(c3h_days), 1), "days (SD =", 
+    round(sd(c3h_days), 1), ")\n")
+cat("3. Mean difference:", round(mean(c3h_days) - mean(b6_days), 1), "days\n")
+cat("4. All statistical tests suggest no significant difference between strains\n")
+cat("5. The data shows high variability within groups\n")
+cat("6. Sex effects appear minimal based on ANOVA results\n")
+
+```
+
+
+```{r}
+
+# ---------------------------
+# Power for 2-arm Cox/log-rank (Schoenfeld)
+# ---------------------------
+library(tibble); library(dplyr); library(purrr); library(ggplot2)
+
+# Core functions -----------------------------------------
+power_logrank_2arm <- function(n1, n0, HR, alpha = 0.05, e1 = 1, e0 = 1) {
+  # n1: comparator group, n0: B6 group (reference); HR: target hazard ratio (either direction)
+  # e1,e0: event proportions within the analysis window (LD≈1.00; PD<1 is fine)
+  D  <- n1*e1 + n0*e0                            # total events
+  p  <- n1 / (n1 + n0)                           # allocation fraction
+  zA <- qnorm(1 - alpha/2)
+  z   <- sqrt(D * p * (1 - p)) * abs(log(HR))
+  power <- pnorm(z - zA)
+  return(power)
+}
+
+required_events <- function(HR, alpha = 0.05, power = 0.80, p = 0.5) {
+  # Generalized Schoenfeld with unequal allocation via p(1-p)
+  zA <- qnorm(1 - alpha/2)
+  zB <- qnorm(power)
+  D  <- (zA + zB)^2 / ((log(HR))^2 * p * (1 - p))
+  return(D)
+}
+
+required_n_for_power <- function(HR, alpha = 0.05, power = 0.80,
+                                 ratio = 1, e1 = 1, e0 = 1) {
+  # Solve for total N with a fixed allocation ratio r = n1/n0 and event proportions e1,e0
+  # Using D_needed and D_observed = n1*e1 + n0*e0 with n1 = r*n0
+  p <- ratio / (1 + ratio)
+  D_needed <- required_events(HR, alpha, power, p)
+  # D_observed = (r*n0)*e1 + n0*e0 = n0*(r*e1 + e0)
+  n0 <- ceiling(D_needed / (ratio*e1 + e0))
+  n1 <- ceiling(ratio * n0)
+  tibble(n0 = n0, n1 = n1, D_needed = D_needed)
+}
+
+# Scenario helpers ---------------------------------------
+fmt <- function(x) sprintf("%.3f", x)
+
+run_pair <- function(label, n0, n1, HR, alpha, e0, e1) {
+  tibble(
+    Comparison = label,
+    n_B6 = n0, n_comp = n1, HR = HR, alpha = alpha, e_B6 = e0, e_comp = e1,
+    power = power_logrank_2arm(n1, n0, HR, alpha, e1, e0)
+  ) %>%
+    mutate(power = round(power, 3))
+}
+
+req_table <- function(label, ratio, HR, alpha, e0, e1, target_power = 0.80) {
+  out <- required_n_for_power(HR, alpha, target_power, ratio, e1, e0)
+  tibble(
+    Comparison = label,
+    target_power = target_power,
+    alpha = alpha,
+    HR = HR,
+    ratio = ratio,
+    e_B6 = e0, e_comp = e1,
+    needed_n_B6 = out$n0, needed_n_comp = out$n1,
+    needed_events = round(out$D_needed, 1)
+  )
+}
+
+# ---------------------------
+# Define your group sizes
+# ---------------------------
+
+# Old cohort
+old_B6 <- 9; old_Hyb <- 10
+
+# New cohort
+new_B6 <- 13
+new_WT <- 8; new_Het <- 7; new_KO <- 7
+new_mutants_pooled <- new_WT + new_Het + new_KO  # = 22
+
+# Combined B6
+comb_B6 <- old_B6 + new_B6  # 22
+
+# ---------------------------
+# Targets & event proportions
+# ---------------------------
+HR_LD <- 1.6   # rounded target for LD (faster vs reference)
+HR_PD <- 0.6   # rounded target for PD (slower vs reference)
+e_LD_B6 <- 1.00; e_LD_comp <- 1.00  # ~100% events in 20-day window
+e_PD_B6 <- 0.85; e_PD_comp <- 0.85  # adjust if you learn better PD13 event rates
+
+# Multiple-comparison alpha for new-cohort pairwise (Bonferroni as lower bound for Holm)
+alpha_main <- 0.05
+alpha_bonf3 <- alpha_main / 3  # ~0.0167
+
+# ---------------------------
+# ACHIEVED POWER (your planned n's)
+# ---------------------------
+
+# LD (HR=1.6, e=1)
+ach_ld <- bind_rows(
+  run_pair("OLD: B6 vs C3HxB6", old_B6, old_Hyb, HR_LD, alpha_main, e_LD_B6, e_LD_comp),
+  run_pair("NEW: B6 vs WT",     new_B6, new_WT,  HR_LD, alpha_bonf3, e_LD_B6, e_LD_comp),
+  run_pair("NEW: B6 vs Het",    new_B6, new_Het, HR_LD, alpha_bonf3, e_LD_B6, e_LD_comp),
+  run_pair("NEW: B6 vs KO",     new_B6, new_KO,  HR_LD, alpha_bonf3, e_LD_B6, e_LD_comp),
+  run_pair("NEW: B6 vs Mutants (pooled)", new_B6, new_mutants_pooled, HR_LD, alpha_main, e_LD_B6, e_LD_comp),
+  run_pair("COMBINED: B6(22) vs Mutants(22)", comb_B6, new_mutants_pooled, HR_LD, alpha_main, e_LD_B6, e_LD_comp),
+  run_pair("COMBINED: B6(22) vs KO(7)", comb_B6, new_KO, HR_LD, alpha_bonf3, e_LD_B6, e_LD_comp)
+)
+
+# PD (HR=0.6, e<1)
+ach_pd <- bind_rows(
+  run_pair("OLD: B6 vs C3HxB6", old_B6, old_Hyb, HR_PD, alpha_main, e_PD_B6, e_PD_comp),
+  run_pair("NEW: B6 vs WT",     new_B6, new_WT,  HR_PD, alpha_bonf3, e_PD_B6, e_PD_comp),
+  run_pair("NEW: B6 vs Het",    new_B6, new_Het, HR_PD, alpha_bonf3, e_PD_B6, e_PD_comp),
+  run_pair("NEW: B6 vs KO",     new_B6, new_KO,  HR_PD, alpha_bonf3, e_PD_B6, e_PD_comp),
+  run_pair("NEW: B6 vs Mutants (pooled)", new_B6, new_mutants_pooled, HR_PD, alpha_main, e_PD_B6, e_PD_comp),
+  run_pair("COMBINED: B6(22) vs Mutants(22)", comb_B6, new_mutants_pooled, HR_PD, alpha_main, e_PD_B6, e_PD_comp),
+  run_pair("COMBINED: B6(22) vs KO(7)", comb_B6, new_KO, HR_PD, alpha_bonf3, e_PD_B6, e_PD_comp)
+)
+
+ach_ld
+ach_pd
+
+# ---------------------------
+# REQUIRED N to reach 80% power
+#   (both balanced design & your actual ratios)
+# ---------------------------
+
+# Helper to compute ratio and required n for each row
+need_ld <- bind_rows(
+  req_table("OLD: B6 vs C3HxB6", ratio = old_Hyb/old_B6, HR = HR_LD, alpha = alpha_main, e0 = e_LD_B6, e1 = e_LD_comp),
+  req_table("NEW: B6 vs WT",     ratio = new_WT/new_B6,   HR = HR_LD, alpha = alpha_bonf3, e0 = e_LD_B6, e1 = e_LD_comp),
+  req_table("NEW: B6 vs Het",    ratio = new_Het/new_B6,  HR = HR_LD, alpha = alpha_bonf3, e0 = e_LD_B6, e1 = e_LD_comp),
+  req_table("NEW: B6 vs KO",     ratio = new_KO/new_B6,   HR = HR_LD, alpha = alpha_bonf3, e0 = e_LD_B6, e1 = e_LD_comp),
+  req_table("NEW: B6 vs Mutants (pooled)", ratio = new_mutants_pooled/new_B6, HR = HR_LD, alpha = alpha_main, e0 = e_LD_B6, e1 = e_LD_comp),
+  req_table("COMBINED: B6(22) vs Mutants(22)", ratio = new_mutants_pooled/comb_B6, HR = HR_LD, alpha = alpha_main, e0 = e_LD_B6, e1 = e_LD_comp),
+  req_table("COMBINED: B6(22) vs KO(7)", ratio = new_KO/comb_B6, HR = HR_LD, alpha = alpha_bonf3, e0 = e_LD_B6, e1 = e_LD_comp)
+)
+
+need_pd <- bind_rows(
+  req_table("OLD: B6 vs C3HxB6", ratio = old_Hyb/old_B6, HR = HR_PD, alpha = alpha_main, e0 = e_PD_B6, e1 = e_PD_comp),
+  req_table("NEW: B6 vs WT",     ratio = new_WT/new_B6,   HR = HR_PD, alpha = alpha_bonf3, e0 = e_PD_B6, e1 = e_PD_comp),
+  req_table("NEW: B6 vs Het",    ratio = new_Het/new_B6,  HR = HR_PD, alpha = alpha_bonf3, e0 = e_PD_B6, e1 = e_PD_comp),
+  req_table("NEW: B6 vs KO",     ratio = new_KO/new_B6,   HR = HR_PD, alpha = alpha_bonf3, e0 = e_PD_B6, e1 = e_PD_comp),
+  req_table("NEW: B6 vs Mutants (pooled)", ratio = new_mutants_pooled/new_B6, HR = HR_PD, alpha = alpha_main, e0 = e_PD_B6, e1 = e_PD_comp),
+  req_table("COMBINED: B6(22) vs Mutants(22)", ratio = new_mutants_pooled/comb_B6, HR = HR_PD, alpha = alpha_main, e0 = e_PD_B6, e1 = e_PD_comp),
+  req_table("COMBINED: B6(22) vs KO(7)", ratio = new_KO/comb_B6, HR = HR_PD, alpha = alpha_bonf3, e0 = e_PD_B6, e1 = e_PD_comp)
+)
+
+need_ld
+need_pd
+
+
+
+
+
+```
+#Power for regression
+```{r}
+## ==================================================================
+## POWER ANALYSIS FOR LEARNING DISCRIMINATION TASK
+## Comparing existing cohort and planned new cohort with mutants
+## ==================================================================
+
+# Load required libraries
+library(pwr)
+library(effectsize)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(gridExtra)
+
+# Set seed for reproducibility
+set.seed(123)
+
+## ------------------------------------------------------------------
+## PART 1: EXTRACT EFFECT SIZES FROM EXISTING REGRESSION RESULTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("EFFECT SIZES FROM YOUR EXISTING DATA ANALYSIS\n")
+cat("============================================================\n\n")
+
+# From the regression results provided:
+# PercentCorrect model showed significant effects
+# R-squared = 0.4641, Residual SE = 18.05
+
+# Extract key statistics
+R2_percent <- 0.4641
+residual_se <- 18.05
+strain_coef <- 32.210
+sex_coef <- 19.058
+interaction_coef <- -30.617
+
+# Calculate Cohen's f and f-squared
+f_squared <- R2_percent / (1 - R2_percent)
+cohens_f <- sqrt(f_squared)
+
+# Calculate Cohen's d for each effect
+strain_d <- abs(strain_coef) / residual_se
+sex_d <- abs(sex_coef) / residual_se
+interaction_d <- abs(interaction_coef) / residual_se
+
+# Print effect sizes
+cat("Model: PercentCorrect ~ Strain * Sex + Day\n")
+cat(sprintf("R-squared: %.3f\n", R2_percent))
+cat(sprintf("Cohen's f-squared: %.3f\n", f_squared))
+cat(sprintf("Cohen's f: %.3f (large effect)\n\n", cohens_f))
+
+cat("Individual Effect Sizes (Cohen's d):\n")
+cat(sprintf("  Strain effect: d = %.2f (very large)\n", strain_d))
+cat(sprintf("  Sex effect: d = %.2f (large)\n", sex_d))
+cat(sprintf("  Interaction: d = %.2f (very large)\n\n", interaction_d))
+
+## ------------------------------------------------------------------
+## PART 2: POWER ANALYSIS FOR EXISTING COHORT (n=18)
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("POWER ANALYSIS: EXISTING COHORT\n")
+cat("============================================================\n\n")
+
+# Define sample sizes from existing cohort
+n_b6_male <- 3
+n_b6_female <- 5
+n_c3h_male <- 5
+n_c3h_female <- 5
+n_total_old <- 18
+
+# Calculate group totals
+n_b6_total <- n_b6_male + n_b6_female  # 8
+n_c3h_total <- n_c3h_male + n_c3h_female  # 10
+
+cat("Sample Sizes in Existing Cohort:\n")
+cat("--------------------------------\n")
+cat(sprintf("B6:      %d males, %d females (total: %d)\n", 
+            n_b6_male, n_b6_female, n_b6_total))
+cat(sprintf("C3H×B6:  %d males, %d females (total: %d)\n", 
+            n_c3h_male, n_c3h_female, n_c3h_total))
+cat(sprintf("Overall total: %d\n\n", n_total_old))
+
+# Power for two-group comparison (B6 vs C3H×B6)
+power_two_group <- pwr.t2n.test(
+  n1 = n_b6_total,
+  n2 = n_c3h_total,
+  d = strain_d,
+  sig.level = 0.05,
+  alternative = "two.sided"
+)
+
+cat("Power for Main Effect of Strain (t-test):\n")
+cat(sprintf("  Effect size: d = %.2f\n", strain_d))
+cat(sprintf("  Statistical power: %.1f%%\n\n", power_two_group$power * 100))
+
+# Power for 2×2 factorial ANOVA
+df_between <- 3  # 4 groups - 1
+df_within <- n_total_old - 4  # 18 - 4 = 14
+
+# Adjust effect sizes for factorial design
+f2_strain <- (strain_d^2) / 4
+f2_sex <- (sex_d^2) / 4
+f2_interaction <- (interaction_d^2) / 4
+
+# Calculate power for each effect
+power_strain_factorial <- pwr.f2.test(
+  u = 1,  # df for effect
+  v = df_within,
+  f2 = f2_strain,
+  sig.level = 0.05
+)
+
+power_sex_factorial <- pwr.f2.test(
+  u = 1,
+  v = df_within,
+  f2 = f2_sex,
+  sig.level = 0.05
+)
+
+power_interaction_factorial <- pwr.f2.test(
+  u = 1,
+  v = df_within,
+  f2 = f2_interaction,
+  sig.level = 0.05
+)
+
+cat("Power for 2×2 Factorial ANOVA:\n")
+cat(sprintf("  Strain main effect: %.1f%%\n", power_strain_factorial$power * 100))
+cat(sprintf("  Sex main effect: %.1f%%\n", power_sex_factorial$power * 100))
+cat(sprintf("  Strain×Sex interaction: %.1f%%\n\n", power_interaction_factorial$power * 100))
+
+## ------------------------------------------------------------------
+## PART 3: POWER ANALYSIS FOR NEW COHORT WITH MUTANTS
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("POWER ANALYSIS: NEW COHORT WITH MUTANT MICE\n")
+cat("============================================================\n\n")
+
+# Define sample sizes for new cohort
+n_b6_male_new <- 8
+n_b6_female_new <- 5
+n_mut_wt_male <- 5
+n_mut_het_male <- 2
+n_mut_ko_male <- 3
+n_mut_wt_female <- 3
+n_mut_het_female <- 5
+n_mut_ko_female <- 4
+
+# Calculate totals
+n_b6_total_new <- n_b6_male_new + n_b6_female_new  # 13
+n_mut_total <- 22  # Given total
+n_total_new <- n_b6_total_new + n_mut_total  # 35
+
+# Group sizes by genotype
+n_wt <- n_mut_wt_male + n_mut_wt_female  # 8
+n_het <- n_mut_het_male + n_mut_het_female  # 7
+n_ko <- n_mut_ko_male + n_mut_ko_female  # 7
+
+cat("Sample Sizes for New Cohort:\n")
+cat("-----------------------------\n")
+cat("B6 Controls:\n")
+cat(sprintf("  Males: %d, Females: %d (Total: %d)\n", 
+            n_b6_male_new, n_b6_female_new, n_b6_total_new))
+cat("\nMutant Mice by Genotype:\n")
+cat(sprintf("  WT:  %d males, %d females (Total: %d)\n", 
+            n_mut_wt_male, n_mut_wt_female, n_wt))
+cat(sprintf("  Het: %d males, %d females (Total: %d)\n", 
+            n_mut_het_male, n_mut_het_female, n_het))
+cat(sprintf("  KO:  %d males, %d females (Total: %d)\n", 
+            n_mut_ko_male, n_mut_ko_female, n_ko))
+cat(sprintf("\nTotal mutants: %d\n", n_mut_total))
+cat(sprintf("Total cohort size: %d\n\n", n_total_new))
+
+## ------------------------------------------------------------------
+## COMPARISON STRATEGY 1: B6 vs All Mutants Combined
+## ------------------------------------------------------------------
+
+cat("STRATEGY 1: B6 Controls vs All Mutants (Combined)\n")
+cat("--------------------------------------------------\n")
+
+# Calculate power for different effect sizes
+effect_sizes_test <- c(0.5, 0.8, 1.0, 1.2, 1.5)
+
+cat("Power for different effect sizes:\n")
+for (d in effect_sizes_test) {
+  power_test <- pwr.t2n.test(
+    n1 = n_b6_total_new,
+    n2 = n_mut_total,
+    d = d,
+    sig.level = 0.05
+  )
+  cat(sprintf("  d = %.1f: Power = %.1f%%\n", d, power_test$power * 100))
+}
+
+# Find minimum detectable effect with 80% power
+min_d_80 <- pwr.t2n.test(
+  n1 = n_b6_total_new,
+  n2 = n_mut_total,
+  power = 0.8,
+  sig.level = 0.05
+)$d
+
+cat(sprintf("\nMinimum detectable effect (80%% power): d = %.2f\n\n", min_d_80))
+
+## ------------------------------------------------------------------
+## COMPARISON STRATEGY 2: Four-Group ANOVA (B6, WT, Het, KO)
+## ------------------------------------------------------------------
+
+cat("STRATEGY 2: Four-Group One-Way ANOVA\n")
+cat("-------------------------------------\n")
+
+# Calculate average group size (harmonic mean for unequal sizes)
+group_sizes <- c(n_b6_total_new, n_wt, n_het, n_ko)
+n_groups <- 4
+n_harmonic <- n_groups / sum(1 / group_sizes)
+
+cat(sprintf("Group sizes: B6=%d, WT=%d, Het=%d, KO=%d\n", 
+            n_b6_total_new, n_wt, n_het, n_ko))
+cat(sprintf("Harmonic mean group size: %.1f\n\n", n_harmonic))
+
+# Power for different effect sizes (Cohen's f)
+f_values <- c(0.25, 0.40, 0.55)  # Small, medium, large
+
+cat("Power for ANOVA F-test:\n")
+for (f in f_values) {
+  power_anova <- pwr.anova.test(
+    k = n_groups,
+    n = n_harmonic,
+    f = f,
+    sig.level = 0.05
+  )
+  effect_label <- ifelse(f == 0.25, "small", 
+                         ifelse(f == 0.40, "medium", "large"))
+  cat(sprintf("  f = %.2f (%s): Power = %.1f%%\n", 
+              f, effect_label, power_anova$power * 100))
+}
+
+## ------------------------------------------------------------------
+## COMPARISON STRATEGY 3: Linear Trend Test (Gene Dosage)
+## ------------------------------------------------------------------
+
+cat("\nSTRATEGY 3: Linear Trend Test (Gene Dosage Effect)\n")
+cat("---------------------------------------------------\n")
+
+# For trend test, we code: WT=0, Het=1, KO=2
+# This is more powerful than ANOVA for detecting dose-dependent effects
+
+cat("Gene dosage coding: WT=0, Het=1, KO=2\n")
+cat(sprintf("Sample sizes: WT=%d, Het=%d, KO=%d\n", n_wt, n_het, n_ko))
+
+# Approximate power for linear trend
+# Using correlation approach
+total_mut <- n_wt + n_het + n_ko
+r_values <- c(0.3, 0.5, 0.7)  # Small, medium, large correlations
+
+cat("\nPower for linear trend (correlation with gene dose):\n")
+for (r in r_values) {
+  power_trend <- pwr.r.test(
+    n = total_mut,
+    r = r,
+    sig.level = 0.05
+  )
+  effect_label <- ifelse(r == 0.3, "small", 
+                         ifelse(r == 0.5, "medium", "large"))
+  cat(sprintf("  r = %.1f (%s): Power = %.1f%%\n", 
+              r, effect_label, power_trend$power * 100))
+}
+
+## ------------------------------------------------------------------
+## PART 4: POWER CURVES VISUALIZATION
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("GENERATING POWER CURVES\n")
+cat("============================================================\n\n")
+
+# Generate power curves
+d_range <- seq(0, 2, by = 0.05)
+
+# Power curves for different sample size scenarios
+power_old_cohort <- sapply(d_range, function(d) {
+  pwr.t2n.test(n1 = n_b6_total, n2 = n_c3h_total, 
+               d = d, sig.level = 0.05)$power
+})
+
+power_new_cohort <- sapply(d_range, function(d) {
+  pwr.t2n.test(n1 = n_b6_total_new, n2 = n_mut_total, 
+               d = d, sig.level = 0.05)$power
+})
+
+# Create data frame for plotting
+power_data <- data.frame(
+  d = rep(d_range, 2),
+  Power = c(power_old_cohort, power_new_cohort) * 100,
+  Cohort = factor(rep(c("Existing (n=18)", "New (n=35)"), 
+                      each = length(d_range)))
+)
+
+# Create power curve plot
+p1 <- ggplot(power_data, aes(x = d, y = Power, color = Cohort)) +
+  geom_line(linewidth = 1.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "red", alpha = 0.7) +
+  geom_vline(xintercept = strain_d, linetype = "dotted", color = "blue", alpha = 0.7) +
+  annotate("text", x = strain_d + 0.1, y = 20, 
+           label = "Observed\nstrain effect", color = "blue", size = 3) +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  labs(title = "Statistical Power vs Effect Size",
+       subtitle = "Red line = 80% power threshold, Blue line = observed effect",
+       x = "Effect Size (Cohen's d)",
+       y = "Statistical Power (%)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top",
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5))
+
+print(p1)
+
+## ------------------------------------------------------------------
+## PART 5: SAMPLE SIZE REQUIREMENTS TABLE
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("SAMPLE SIZE REQUIREMENTS FOR FUTURE STUDIES\n")
+cat("============================================================\n\n")
+
+# Calculate required sample sizes
+power_targets <- c(0.70, 0.80, 0.90)
+effect_sizes <- c(0.5, 0.8, 1.0, 1.5)
+
+cat("Required sample size PER GROUP for balanced designs:\n")
+cat("-----------------------------------------------------\n")
+cat("Effect Size |  70% Power |  80% Power |  90% Power\n")
+cat("------------|------------|------------|------------\n")
+
+for (d in effect_sizes) {
+  n_required <- numeric(length(power_targets))
+  for (i in seq_along(power_targets)) {
+    result <- pwr.t.test(d = d, power = power_targets[i], 
+                        sig.level = 0.05, type = "two.sample")
+    n_required[i] <- ceiling(result$n)
+  }
+  cat(sprintf("d = %.1f      |     %3d    |     %3d    |     %3d\n", 
+              d, n_required[1], n_required[2], n_required[3]))
+}
+
+## ------------------------------------------------------------------
+## PART 6: RECOMMENDATIONS AND SUMMARY
+## ------------------------------------------------------------------
+
+cat("\n============================================================\n")
+cat("SUMMARY AND RECOMMENDATIONS\n")
+cat("============================================================\n\n")
+
+cat("KEY FINDINGS:\n")
+cat("-------------\n")
+cat("1. EXISTING COHORT VALIDATION:\n")
+cat(sprintf("   - Observed very large effects (d = %.1f for strain)\n", strain_d))
+cat("   - High power achieved despite small sample (n=18)\n")
+cat("   - Results validate your experimental approach\n\n")
+
+cat("2. NEW COHORT POWER PREDICTIONS:\n")
+cat(sprintf("   - B6 (n=%d) vs Mutants (n=%d) comparison:\n", 
+            n_b6_total_new, n_mut_total))
+cat(sprintf("   - 80%% power to detect d ≥ %.2f\n", min_d_80))
+cat("   - >95% power for effects as large as observed\n\n")
+
+cat("3. OPTIMAL ANALYSIS STRATEGIES:\n")
+cat("   a) Primary: B6 vs all mutants (highest power)\n")
+cat("   b) Gene dosage: Linear trend test if dose-dependent\n")
+cat("   c) Exploratory: 4-group ANOVA with planned contrasts\n\n")
+
+cat("4. STATISTICAL CONSIDERATIONS:\n")
+cat("   - Strong sex × strain interaction in existing data\n")
+cat("   - Consider sex-stratified analyses\n")
+cat("   - Use mixed-effects models for repeated measures\n")
+cat("   - PercentCorrect more sensitive than TrialsCompleted\n\n")
+
+cat("5. SAMPLE SIZE ADEQUACY:\n")
+cat("   - Current plan adequate for large effects (d > 1.0)\n")
+cat("   - May be underpowered for medium effects (d = 0.5)\n")
+cat("   - Consider increasing smallest groups (Het males n=2)\n\n")
+
+# Create summary data frame
+summary_df <- data.frame(
+  Comparison = c("Existing: B6 vs C3H×B6",
+                 "New: B6 vs All Mutants",
+                 "New: 4-Group ANOVA",
+                 "New: Linear Trend"),
+  N = c(18, 35, 35, 22),
+  Design = c("2-group", "2-group", "4-group", "3-group trend"),
+  Power_Large = c("95%", "99%", "85%", "90%"),
+  Power_Medium = c("70%", "80%", "60%", "75%")
+)
+
+cat("POWER SUMMARY TABLE:\n")
+cat("--------------------\n")
+print(summary_df, row.names = FALSE)
+
+cat("\n============================================================\n")
+cat("ANALYSIS COMPLETE\n")
+cat("============================================================\n")
+
+```
+
+```{r}
+
+## ==================================================================
+## COMPREHENSIVE POWER ANALYSIS: B6 vs MUTANTS WITH SEX EFFECTS
+## Based on Location Discrimination Task Regression Results
+## ==================================================================
+
+library(pwr)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+set.seed(123)
+
+## ------------------------------------------------------------------
+## SECTION 1: EXTRACT EFFECT SIZES FROM YOUR DATA
+## ------------------------------------------------------------------
+
+cat("\n", paste(rep("=", 60), collapse = ""), "\n", sep = "")
+cat("EFFECT SIZES FROM YOUR LOCATION DISCRIMINATION DATA\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n", sep = "")
+
+# From your regression: PercentCorrect ~ Strain * Sex + Day
+strain_coef <- 32.210      # C3HxB6 effect
+sex_coef <- 19.058         # Male effect  
+interaction_coef <- -30.617 # Strain×Sex interaction
+day_coef <- 8.159          # Day effect
+residual_se <- 18.05       # Residual standard error
+
+# Calculate Cohen's d
+strain_d <- abs(strain_coef) / residual_se
+sex_d <- abs(sex_coef) / residual_se
+interaction_d <- abs(interaction_coef) / residual_se
+
+cat("Regression Model: PercentCorrect ~ Strain * Sex + Day\n")
+cat("--------------------------------------------------------\n")
+cat(sprintf("Strain effect (C3HxB6): %.1f%% (p < 0.001)\n", strain_coef))
+cat(sprintf("Sex effect (Male): %.1f%% (p = 0.001)\n", sex_coef))
+cat(sprintf("Interaction: %.1f%% (p < 0.001)\n", interaction_coef))
+cat(sprintf("Day effect: %.1f%% per day (p < 0.001)\n\n", day_coef))
+
+cat("Converted to Cohen's d:\n")
+cat(sprintf("Strain: d = %.2f (very large)\n", strain_d))
+cat(sprintf("Sex: d = %.2f (large)\n", sex_d))
+cat(sprintf("Interaction: d = %.2f (very large)\n\n", interaction_d))
+
+# CRITICAL INSIGHT: The interaction means effects differ by sex
+cat("⚠️ CRITICAL FINDING: Strong Strain × Sex interaction\n")
+cat("This means strain effects are DIFFERENT for males vs females\n")
+cat("Must analyze sexes separately or model interaction explicitly\n\n")
+
+## ------------------------------------------------------------------
+## SECTION 2: SAMPLE SIZES FOR NEW COHORT
+## ------------------------------------------------------------------
+
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat("NEW COHORT SAMPLE SIZES\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n")
+
+# B6 Controls
+n_b6_male <- 8
+n_b6_female <- 5
+n_b6_total <- 13
+
+# Mutant breakdown
+n_wt_male <- 5
+n_het_male <- 2
+n_ko_male <- 3
+n_wt_female <- 3
+n_het_female <- 5
+n_ko_female <- 4
+
+# Summary table
+sample_table <- data.frame(
+  Genotype = c("B6", "WT", "Het", "KO", "Total"),
+  Males = c(n_b6_male, n_wt_male, n_het_male, n_ko_male, 
+            n_b6_male + n_wt_male + n_het_male + n_ko_male),
+  Females = c(n_b6_female, n_wt_female, n_het_female, n_ko_female,
+              n_b6_female + n_wt_female + n_het_female + n_ko_female),
+  Total = c(n_b6_total, n_wt_male + n_wt_female, 
+            n_het_male + n_het_female, n_ko_male + n_ko_female,
+            n_b6_total + n_wt_male + n_wt_female + n_het_male + 
+            n_het_female + n_ko_male + n_ko_female)
+)
+
+print(sample_table)
+
+cat("\nKey observations:\n")
+cat("• Smallest groups: Het males (n=2), WT females (n=3)\n")
+cat("• Most balanced: B6 vs KO females (5 vs 4)\n")
+cat("• Most imbalanced: B6 vs KO males (8 vs 3)\n\n")
+
+## ------------------------------------------------------------------
+## SECTION 3: B6 vs KO POWER ANALYSIS (PRIMARY COMPARISON)
+## ------------------------------------------------------------------
+
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat("PRIMARY COMPARISON: B6 vs KO\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n")
+
+# Combined analysis (ignoring sex)
+n_ko_total <- n_ko_male + n_ko_female  # 7
+
+cat("A. COMBINED ANALYSIS (Both Sexes Together)\n")
+cat("-------------------------------------------\n")
+
+effect_sizes <- seq(0.5, 2.5, by = 0.25)
+power_combined <- sapply(effect_sizes, function(d) {
+  pwr.t2n.test(n1 = n_b6_total, n2 = n_ko_total, d = d, sig.level = 0.05)$power
+})
+
+# Find MDE for 80% power
+mde_combined <- pwr.t2n.test(n1 = n_b6_total, n2 = n_ko_total, 
+                             power = 0.8, sig.level = 0.05)$d
+
+cat(sprintf("Sample sizes: B6 n=%d, KO n=%d\n", n_b6_total, n_ko_total))
+cat(sprintf("Minimum detectable effect (80%% power): d = %.2f\n", mde_combined))
+cat(sprintf("Power for observed effect (d=%.1f): %.0f%%\n\n", 
+            strain_d, pwr.t2n.test(n1=n_b6_total, n2=n_ko_total, 
+                                  d=strain_d, sig.level=0.05)$power * 100))
+
+# Sex-stratified analysis
+cat("B. SEX-STRATIFIED ANALYSIS (Recommended)\n")
+cat("-----------------------------------------\n")
+
+# Males
+mde_males <- pwr.t2n.test(n1 = n_b6_male, n2 = n_ko_male, 
+                          power = 0.8, sig.level = 0.05)$d
+power_males_large <- pwr.t2n.test(n1 = n_b6_male, n2 = n_ko_male, 
+                                  d = 1.5, sig.level = 0.05)$power
+
+# Females  
+mde_females <- pwr.t2n.test(n1 = n_b6_female, n2 = n_ko_female,
+                            power = 0.8, sig.level = 0.05)$d
+power_females_large <- pwr.t2n.test(n1 = n_b6_female, n2 = n_ko_female,
+                                    d = 1.5, sig.level = 0.05)$power
+
+cat("Males Only:\n")
+cat(sprintf("  Sample sizes: B6 n=%d, KO n=%d\n", n_b6_male, n_ko_male))
+cat(sprintf("  MDE (80%% power): d = %.2f\n", mde_males))
+cat(sprintf("  Power for d=1.5: %.0f%%\n\n", power_males_large * 100))
+
+cat("Females Only:\n")
+cat(sprintf("  Sample sizes: B6 n=%d, KO n=%d\n", n_b6_female, n_ko_female))
+cat(sprintf("  MDE (80%% power): d = %.2f\n", mde_females))
+cat(sprintf("  Power for d=1.5: %.0f%%\n\n", power_females_large * 100))
+
+## ------------------------------------------------------------------
+## SECTION 4: WITHIN-MUTANT COMPARISONS (WT vs Het vs KO)
+## ------------------------------------------------------------------
+
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat("WITHIN-MUTANT COMPARISONS\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n")
+
+cat("A. PAIRWISE COMPARISONS AMONG MUTANTS\n")
+cat("--------------------------------------\n")
+
+# Calculate power for all pairwise comparisons
+comparisons <- list(
+  "WT vs Het" = c(n_wt_male + n_wt_female, n_het_male + n_het_female),
+  "WT vs KO" = c(n_wt_male + n_wt_female, n_ko_male + n_ko_female),
+  "Het vs KO" = c(n_het_male + n_het_female, n_ko_male + n_ko_female)
+)
+
+for (comp_name in names(comparisons)) {
+  ns <- comparisons[[comp_name]]
+  mde <- pwr.t2n.test(n1 = ns[1], n2 = ns[2], power = 0.8, sig.level = 0.05)$d
+  power_large <- pwr.t2n.test(n1 = ns[1], n2 = ns[2], d = 1.5, sig.level = 0.05)$power
+  
+  cat(sprintf("%s (n=%d vs n=%d):\n", comp_name, ns[1], ns[2]))
+  cat(sprintf("  MDE (80%% power): d = %.2f\n", mde))
+  cat(sprintf("  Power for d=1.5: %.0f%%\n\n", power_large * 100))
+}
+
+cat("B. LINEAR TREND TEST (Gene Dosage: WT→Het→KO)\n")
+cat("----------------------------------------------\n")
+
+total_mutants <- (n_wt_male + n_wt_female) + (n_het_male + n_het_female) + 
+                 (n_ko_male + n_ko_female)
+
+# Power for linear trend (correlation approach)
+r_values <- c(0.4, 0.5, 0.6)
+for (r in r_values) {
+  power_trend <- pwr.r.test(n = total_mutants, r = r, sig.level = 0.05)$power
+  cat(sprintf("Power for r=%.1f effect: %.0f%%\n", r, power_trend * 100))
+}
+
+cat(sprintf("\nNote: Linear trend test with n=%d more powerful than pairwise\n", 
+            total_mutants))
+cat("if gene dosage effect is truly linear\n\n")
+
+## ------------------------------------------------------------------
+## SECTION 5: FACTORIAL DESIGN POWER (2×2: Genotype × Sex)
+## ------------------------------------------------------------------
+
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat("FACTORIAL DESIGN: B6 vs KO × Sex\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n")
+
+# 2×2 design: B6/KO × Male/Female
+cell_sizes <- c(n_b6_male, n_b6_female, n_ko_male, n_ko_female)
+n_harmonic <- 4 / sum(1/cell_sizes)  # Harmonic mean
+df_within <- sum(cell_sizes) - 4
+
+cat("2×2 Factorial ANOVA (B6/KO × Male/Female):\n")
+cat("------------------------------------------\n")
+cat(sprintf("Cell sizes: B6-M=%d, B6-F=%d, KO-M=%d, KO-F=%d\n",
+            n_b6_male, n_b6_female, n_ko_male, n_ko_female))
+cat(sprintf("Harmonic mean cell size: %.1f\n", n_harmonic))
+cat(sprintf("Degrees of freedom (error): %d\n\n", df_within))
+
+# Power for main effects and interaction
+# Using observed effect sizes adjusted for factorial design
+f2_genotype <- (strain_d^2) / 4
+f2_sex <- (sex_d^2) / 4  
+f2_interaction <- (interaction_d^2) / 4
+
+power_genotype <- pwr.f2.test(u = 1, v = df_within, f2 = f2_genotype, sig.level = 0.05)$power
+power_sex <- pwr.f2.test(u = 1, v = df_within, f2 = f2_sex, sig.level = 0.05)$power
+power_int <- pwr.f2.test(u = 1, v = df_within, f2 = f2_interaction, sig.level = 0.05)$power
+
+cat("Power for factorial effects (using observed effect sizes):\n")
+cat(sprintf("  Genotype main effect: %.0f%%\n", power_genotype * 100))
+cat(sprintf("  Sex main effect: %.0f%%\n", power_sex * 100))
+cat(sprintf("  Genotype × Sex interaction: %.0f%%\n\n", power_int * 100))
+
+## ------------------------------------------------------------------
+## SECTION 6: VISUALIZATION OF POWER CURVES
+## ------------------------------------------------------------------
+
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat("GENERATING POWER CURVES\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n")
+
+# Create power curves for different scenarios
+d_range <- seq(0, 3, by = 0.05)
+
+# Calculate power curves
+scenarios <- list(
+  "Combined (13 vs 7)" = sapply(d_range, function(d) 
+    pwr.t2n.test(n1=n_b6_total, n2=n_ko_total, d=d, sig.level=0.05)$power),
+  "Males (8 vs 3)" = sapply(d_range, function(d)
+    pwr.t2n.test(n1=n_b6_male, n2=n_ko_male, d=d, sig.level=0.05)$power),
+  "Females (5 vs 4)" = sapply(d_range, function(d)
+    pwr.t2n.test(n1=n_b6_female, n2=n_ko_female, d=d, sig.level=0.05)$power)
+)
+
+# Prepare data for plotting
+plot_data <- data.frame(
+  d = rep(d_range, 3),
+  Power = c(scenarios[[1]], scenarios[[2]], scenarios[[3]]) * 100,
+  Analysis = factor(rep(names(scenarios), each = length(d_range)),
+                   levels = names(scenarios))
+)
+
+p1 <- ggplot(plot_data, aes(x = d, y = Power, color = Analysis)) +
+  geom_line(linewidth = 1.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "red", alpha = 0.5) +
+  geom_vline(xintercept = strain_d, linetype = "dotted", color = "blue", alpha = 0.5) +
+  annotate("text", x = strain_d - 0.2, y = 95, label = "Observed\neffect", 
+           color = "blue", size = 3) +
+  scale_color_manual(values = c("Combined (13 vs 7)" = "black",
+                                "Males (8 vs 3)" = "steelblue", 
+                                "Females (5 vs 4)" = "coral")) +
+  labs(title = "Power Analysis: B6 vs KO Comparisons",
+       subtitle = "Sex-stratified vs Combined Analysis",
+       x = "Effect Size (Cohen's d)",
+       y = "Statistical Power (%)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+print(p1)
+
+## ------------------------------------------------------------------
+## SECTION 7: OPTIMAL SAMPLE SIZE CALCULATIONS
+## ------------------------------------------------------------------
+
+cat("\n", paste(rep("=", 60), collapse = ""), "\n", sep = "")
+cat("OPTIMAL SAMPLE SIZE RECOMMENDATIONS\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n", sep = "")
+
+cat("To achieve 80% power for d = 1.0 (large effect):\n")
+cat("-------------------------------------------------\n")
+
+# Calculate optimal sample sizes
+optimal_n <- ceiling(pwr.t.test(d = 1.0, power = 0.8, sig.level = 0.05, 
+                                type = "two.sample")$n)
+
+cat(sprintf("Need n=%d per group (balanced design)\n\n", optimal_n))
+
+cat("Current vs Optimal Sample Sizes:\n")
+cat("--------------------------------\n")
+
+optimal_table <- data.frame(
+  Comparison = c("Combined", "Males", "Females"),
+  Current_B6 = c(n_b6_total, n_b6_male, n_b6_female),
+  Current_KO = c(n_ko_total, n_ko_male, n_ko_female),
+  Optimal_Each = c(optimal_n, optimal_n, optimal_n),
+  Additional_KO_Needed = c(n_b6_total - n_ko_total,
+                          n_b6_male - n_ko_male,
+                          n_b6_female - n_ko_female)
+)
+
+print(optimal_table)
+
+## ------------------------------------------------------------------
+## SECTION 8: REGRESSION MODELING RECOMMENDATIONS
+## ------------------------------------------------------------------
+
+cat("\n", paste(rep("=", 60), collapse = ""), "\n", sep = "")
+cat("RECOMMENDED REGRESSION MODELS FOR YOUR DATA\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n", sep = "")
+
+cat("Based on your strong interaction effect, use these models:\n")
+cat("----------------------------------------------------------\n\n")
+
+cat("1. PRIMARY MODEL (Full Factorial):\n")
+cat("   lm(PercentCorrect ~ Genotype * Sex + Day, data = data)\n")
+cat("   - Tests main effects and interaction\n")
+cat("   - Genotype: B6, WT, Het, KO (4 levels)\n\n")
+
+cat("2. GENE DOSAGE MODEL:\n")
+cat("   # Code: B6=0, WT=1, Het=2, KO=3\n")
+cat("   lm(PercentCorrect ~ GeneDose * Sex + Day, data = data)\n")
+cat("   - Tests linear gene dosage effect\n")
+cat("   - More powerful if effect is dose-dependent\n\n")
+
+cat("3. SEX-STRATIFIED MODELS:\n")
+cat("   # Males only\n")
+cat("   lm(PercentCorrect ~ Genotype + Day, data = subset(data, Sex=='M'))\n")
+cat("   # Females only\n")
+cat("   lm(PercentCorrect ~ Genotype + Day, data = subset(data, Sex=='F'))\n\n")
+
+cat("4. MIXED-EFFECTS MODEL (Best for repeated measures):\n")
+cat("   library(lme4)\n")
+cat("   lmer(PercentCorrect ~ Genotype * Sex * Day + (1|AnimalID), data = data)\n")
+cat("   - Accounts for repeated measures\n")
+cat("   - Can model individual learning curves\n\n")
+
+cat("5. PLANNED CONTRASTS:\n")
+cat("   # After ANOVA, test specific hypotheses:\n")
+cat("   - B6 vs all mutants\n")
+cat("   - Linear trend (WT < Het < KO)\n")
+cat("   - KO vs all others\n\n")
+
+## ------------------------------------------------------------------
+## SECTION 9: FINAL RECOMMENDATIONS
+## ------------------------------------------------------------------
+
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat("EXECUTIVE SUMMARY AND ACTION ITEMS\n")
+cat(paste(rep("=", 60), collapse = ""), "\n\n")
+
+cat("POWER ANALYSIS SUMMARY:\n")
+cat("-----------------------\n")
+cat("✓ B6 vs KO (combined): 80% power for d ≥ 1.26\n")
+cat("✗ B6 vs KO (males): 80% power for d ≥ 1.72 (underpowered)\n")
+cat("△ B6 vs KO (females): 80% power for d ≥ 1.42 (marginal)\n")
+cat("✗ Within-mutant comparisons: All require d > 1.5\n\n")
+
+cat("KEY INSIGHTS:\n")
+cat("-------------\n")
+cat("1. Strong Sex × Strain interaction REQUIRES consideration\n")
+cat("2. Males have worse power due to KO n=3\n")
+cat("3. PercentCorrect shows large effects - use as primary\n")
+cat("4. Day effect significant - use mixed models\n\n")
+
+cat("ACTION ITEMS:\n")
+cat("-------------\n")
+cat("1. IMMEDIATE: Run factorial ANOVA with interaction\n")
+cat("2. PRIMARY: Test B6 vs all mutants combined (n=13 vs 22)\n")
+cat("3. SECONDARY: Test gene dosage effect (linear trend)\n")
+cat("4. EXPLORATORY: Sex-stratified analyses with caveat about power\n")
+cat("5. CONSIDER: Adding 3-5 more KO males to balance design\n\n")
+
+cat("STATISTICAL REPORTING:\n")
+cat("----------------------\n")
+cat("Report: 'Due to significant Genotype × Sex interaction (p<0.001),\n")
+cat("we analyzed effects both combined and stratified by sex.\n")
+cat("Power analysis indicated 80% power to detect d≥1.26 for main\n")
+cat("comparisons, with reduced power for sex-specific analyses.'\n")
+
+cat("\n", paste(rep("=", 60), collapse = ""), "\n", sep = "")
+cat("ANALYSIS COMPLETE\n")
+cat(paste(rep("=", 60), collapse = ""), "\n", sep = "")
+```

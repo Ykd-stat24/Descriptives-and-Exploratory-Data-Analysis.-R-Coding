@@ -1,0 +1,1356 @@
+---
+title: "Home analysis"
+author: "Yashoda K Das"
+date: "2025-02-01"
+output: powerpoint_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comments = "", results = TRUE)
+```
+
+
+```{r anova and regression att. 1}
+
+
+
+
+# Load required packages (install any that are missing)
+library(readxl)      # for reading Excel files
+library(car)         # for MANOVA (and other regression diagnostics)
+library(emmeans)     # for post hoc contrasts
+library(ggplot2)     # for plotting (optional)
+library(lme4)        # for mixed effects models (repeated measures)
+library(nlme)        # for alternative mixed models approaches
+
+# Read in the data (adjust path as needed)
+data <- readxl::read_excel("C:/Users/gopal/Documents/Collated data c1 to 8.xlsx")
+
+# Clean column names (remove spaces/special characters)
+names(data) <- gsub("[^[:alnum:]]", "", names(data))
+colnames(data)[colnames(data) == "EndSummaryTrialsCompleted1"] <- "TrialsCompleted"
+colnames(data)[colnames(data) == "EndSummaryCorrect1"] <- "PercentCorrect"
+
+# Convert variables to appropriate types
+data$Genotype <- as.factor(data$Genotype)
+data$Sex <- as.factor(data$Sex)
+data$Sheet <- as.factor(data$Sheet)
+data$Day <- as.numeric(data$Day)  # Treat Day as numeric for regression trends
+data$Date <- as.Date(data$ScheduleStartTime)
+
+# If you have a subject identifier, e.g., a column called "Subject", ensure it is a factor:
+data$Subject <- as.factor(data$AnimalID)
+
+#Reference group for the regression
+data$Genotype <- relevel(data$Genotype, ref = "-/-")
+
+
+
+
+
+
+# Here we create shorter names for the additional factors.
+colnames(data)[colnames(data) == "EndSummaryRightITITouches1"] <- "RightITITouches"
+colnames(data)[colnames(data) == "EndSummaryLeftITITouches1"]  <- "LeftITITouches"
+colnames(data)[colnames(data) == "Total10TrialBlockTrials"]     <- "EndTime"
+
+# (Assuming the other columns, e.g., PercentCorrect, are already named appropriately)
+
+# Convert any necessary variables to numeric (if not already)
+data$RightITITouches   <- as.numeric(data$RightITITouches)
+data$LeftITITouches    <- as.numeric(data$LeftITITouches)
+data$EndTime  <- as.numeric(data$EndTime)
+data$PercentCorrect    <- as.numeric(data$PercentCorrect)
+
+# Check the names and a summary of the new columns:
+names(data)
+summary(data[, c("RightITITouches", "LeftITITouches", "EndTime", "PercentCorrect")])
+
+
+
+
+
+# -------------------------------
+# 3. Recode Genotype Levels and Define Colors
+# -------------------------------
+# Our goal is to change:
+#   original "+"  --> "-/-" 
+#   original "+/-" remains as "+/-"
+#   original "-"  --> "+/+"
+data$Genotype <- factor(data$Genotype, levels = c("+", "+/-", "-"))
+levels(data$Genotype) <- c("-/-", "+/-", "+/+")
+
+# Define a color mapping:
+#   "-/-" (originally +) will be green,
+#   "+/-" remains blue,
+#   "+/+" (originally -) will be red.
+
+# Define color mapping for Genotype:
+geno_colors <- c("+/+" = "blue", "+/-" = "yellow", "-/-" = "magenta")
+
+
+
+
+
+
+
+
+# Linear regression for TrialsCompleted
+lm_trials <- lm(TrialsCompleted ~ Genotype * Sex + Day, data = data)
+summary(lm_trials)
+
+# Linear regression for PercentCorrect
+lm_percent <- lm(PercentCorrect ~ Genotype * Sex + Day, data = data)
+summary(lm_percent)
+
+# Polynomial (quadratic) regression for TrialsCompleted
+lm_trials_poly <- lm(TrialsCompleted ~ Genotype * Sex + poly(Day, 2), data = data)
+summary(lm_trials_poly)
+
+# Polynomial (quadratic) regression for PercentCorrect
+lm_percent_poly <- lm(PercentCorrect ~ Genotype * Sex + poly(Day, 2), data = data)
+summary(lm_percent_poly)
+
+
+
+# Example: Fit a logistic-type growth model for PercentCorrect over Day.
+# The model here assumes PercentCorrect approaches an asymptote ("Asym")
+# and that the increase follows a logistic curve.
+nls_percent <- nls(PercentCorrect ~ Asym / (1 + exp((xmid - Day) / scal)),
+                   data = data,
+                   start = list(Asym = 100, xmid = median(data$Day), scal = 2))
+summary(nls_percent)
+
+
+# (Assuming data$Subject exists and Day is treated as a factor for RM analysis)
+data$DayFactor <- as.factor(data$Day)
+
+# MANOVA with TrialsCompleted and PercentCorrect as joint responses
+manova_model <- manova(cbind(TrialsCompleted, PercentCorrect) ~ Genotype * Sex + Day, data = data)
+summary(manova_model, test = "Wilks")
+
+
+
+# Repeated measures ANOVA for TrialsCompleted (within-subject factor: DayFactor)
+rm_anova_trials <- aov(TrialsCompleted ~ Genotype * Sex * DayFactor + Error(Subject/DayFactor), data = data)
+summary(rm_anova_trials)
+
+# Similarly, you could run an analysis for PercentCorrect.
+
+# Repeated measures ANOVA for TrialsCompleted (within-subject factor: DayFactor)
+rm_anova_trials <- aov(PercentCorrect ~ Genotype * Sex * DayFactor + Error(Subject/DayFactor), data = data)
+summary(rm_anova_trials)
+
+
+
+
+library(ggplot2)
+
+ggplot(data, aes(x = Day, y = TrialsCompleted, color = Genotype, shape = Sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Trials Completed vs. Day",
+       x = "Day",
+       y = "Trials Completed") +
+  theme_minimal() +
+  facet_wrap(~ Sex) +
+  scale_color_manual(values = geno_colors) 
+
+
+
+ggplot(data, aes(x = Day, y = PercentCorrect, color = Genotype, shape = Sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Percent Correct vs. Day (Linear Fit)",
+       x = "Day",
+       y = "Percent Correct") +
+  theme_minimal() +
+  facet_wrap(~ Sex) +
+  scale_color_manual(values = geno_colors) 
+
+
+# Create a new data frame for smooth predictions
+newdata <- data.frame(Day = seq(min(data$Day), max(data$Day), length.out = 200))
+newdata$PercentCorrect_pred <- 31.2517 / (1 + exp((7.9413 - newdata$Day) / 0.4989))
+
+ggplot(data, aes(x = Day, y = PercentCorrect)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_line(data = newdata, aes(x = Day, y = PercentCorrect_pred),
+            color = "red", size = 1.2) +
+  labs(title = "Percent Correct vs. Day with Logistic Fit",
+       x = "Day",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+
+
+
+
+# Create a new data frame for smooth predictions
+newdata <- data.frame(Day = seq(min(data$Day), max(data$Day), length.out = 200))
+newdata$TrialsCompleted_pred <- 31.2517 / (1 + exp((7.9413 - newdata$Day) / 0.4989))
+
+ggplot(data, aes(x = Day, y = TrialsCompleted)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_line(data = newdata, aes(x = Day, y = TrialsCompleted_pred),
+            color = "red", size = 1.2) +
+  labs(title = "Trials Completed vs. Day with Logistic Fit",
+       x = "Day",
+       y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+ 
+
+
+library(emmeans)
+
+# For TrialsCompleted
+emm_trials <- emmeans(lm(TrialsCompleted ~ Genotype * Sex + Day, data = data),
+                      ~ Genotype * Sex)
+plot(emm_trials, comparisons = TRUE) +
+  labs(title = "Estimated Marginal Means: Trials Completed by Genotype & Sex",
+       y = "Predicted Trials Completed")
+
+
+emm_percent <- emmeans(lm(PercentCorrect ~ Genotype * Sex + Day, data = data),
+                       ~ Genotype * Sex)
+plot(emm_percent, comparisons = TRUE) +
+  labs(title = "Estimated Marginal Means: Percent Correct by Genotype & Sex",
+       y = "Predicted Percent Correct")
+
+ggplot(data, aes(x = Day, y = TrialsCompleted, group = Subject, color = Genotype)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(aes(group = Genotype), method = "lm", se = FALSE, size = 2) +
+  labs(title = "Individual Trajectories for Trials Completed",
+       x = "Day", y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+
+
+
+ggplot(data, aes(x = Day, y = PercentCorrect, group = Subject, color = Genotype)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(aes(group = Genotype), method = "lm", se = FALSE, size = 2) +
+  labs(title = "Individual Trajectories for Percent Correct",
+       x = "Day", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+
+
+
+# For the linear model on TrialsCompleted:
+par(mfrow = c(2, 2))
+plot(lm(TrialsCompleted ~ Genotype * Sex + Day, data = data))
+
+library(GGally)
+
+ggpairs(data, columns = c("TrialsCompleted", "PercentCorrect"),
+        aes(color = Genotype)) +
+  labs(title = "Scatterplot Matrix of Trials Completed and Percent Correct")
+
+
+```
+
+
+```{r}
+
+library(ggplot2)
+library(GGally)
+
+
+# Define color mapping for Genotype:
+geno_colors <- c("+/+" = "blue", "+/-" = "yellow", "-/-" = "magenta")
+
+# 1. Trials Completed vs. Day (colored by Genotype, shaped by Sex; faceted by Sex)
+ggplot(data, aes(x = Day, y = TrialsCompleted, color = Genotype, shape = Sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Trials Completed vs. Day",
+       x = "Day",
+       y = "Trials Completed") +
+  theme_minimal() +
+  facet_wrap(~ Sex) +
+  scale_color_manual(values = geno_colors)
+
+# 2. Percent Correct vs. Day (Linear Fit)
+ggplot(data, aes(x = Day, y = PercentCorrect, color = Genotype, shape = Sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Percent Correct vs. Day (Linear Fit)",
+       x = "Day",
+       y = "Percent Correct") +
+  theme_minimal() +
+  facet_wrap(~ Sex) +
+  scale_color_manual(values = geno_colors)
+
+# 3. Individual Trajectories for Trials Completed
+ggplot(data, aes(x = Day, y = TrialsCompleted, group = Subject, color = Genotype)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(aes(group = Genotype), method = "lm", se = FALSE, size = 2) +
+  labs(title = "Individual Trajectories for Trials Completed",
+       x = "Day", y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# 4. Individual Trajectories for Percent Correct
+ggplot(data, aes(x = Day, y = PercentCorrect, group = Subject, color = Genotype)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(aes(group = Genotype), method = "lm", se = FALSE, size = 2) +
+  labs(title = "Individual Trajectories for Percent Correct",
+       x = "Day", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors) 
+
+# 5. Diagnostic Plots for the Linear Model on TrialsCompleted
+par(mfrow = c(2, 2))
+plot(lm(TrialsCompleted ~ Genotype * Sex + Day, data = data))
+
+# 6. Scatterplot Matrix using ggpairs
+ggpairs(data, columns = c("TrialsCompleted", "PercentCorrect"),
+        mapping = aes(color = Genotype)) +
+  scale_color_manual(values = geno_colors) +
+  labs(title = "Scatterplot Matrix of Trials Completed and Percent Correct")
+
+
+
+```
+
+
+```{r further regression inferences}
+
+
+
+
+
+
+# 2. ANALYSIS: RIGHT ITI TOUCHES AND PERCENT CORRECT
+# -----------------------------------------------------
+
+# Define your genotype colors (e.g., in your script):
+geno_colors <- c("+/+" = "blue", "+/-" = "yellow", "-/-" = "magenta")
+
+# 1. ANALYSIS: Right ITI Touches and PercentCorrect
+# ----------------------------------------------------
+## (A) Linear Regression
+lm_right <- lm(PercentCorrect ~ RightITITouches, data = data)
+summary(lm_right)
+
+## (B) Polynomial (2nd Order)
+lm_right_poly <- lm(PercentCorrect ~ poly(RightITITouches, 2), data = data)
+summary(lm_right_poly)
+
+## (C) Graphs for Right ITI Touches
+
+# Scatterplot with Linear Regression
+ggplot(data, aes(x = RightITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  # Single regression line in "blue"
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Percent Correct vs. Right ITI Touches (Linear Fit)",
+       x = "Right ITI Touches", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Scatterplot with 2nd Order Polynomial Fit
+ggplot(data, aes(x = RightITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  # Single polynomial fit in "red"
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "red") +
+  labs(title = "Percent Correct vs. Right ITI Touches (2nd Order Polynomial Fit)",
+       x = "Right ITI Touches", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+# 2. ANALYSIS: Left ITI Touches and PercentCorrect
+# ----------------------------------------------------
+
+## (A) Linear Regression
+lm_left <- lm(PercentCorrect ~ LeftITITouches, data = data)
+summary(lm_left)
+
+## (B) Polynomial (2nd Order)
+lm_left_poly <- lm(PercentCorrect ~ poly(LeftITITouches, 2), data = data)
+summary(lm_left_poly)
+
+## (C) Graphs for Left ITI Touches
+
+# Scatterplot with Linear Regression
+ggplot(data, aes(x = LeftITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Percent Correct vs. Left ITI Touches (Linear Fit)",
+       x = "Left ITI Touches", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Scatterplot with 2nd Order Polynomial Fit
+ggplot(data, aes(x = LeftITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "red") +
+  labs(title = "Percent Correct vs. Left ITI Touches (2nd Order Polynomial Fit)",
+       x = "Left ITI Touches", y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+# 3. ANALYSIS: Total 10 Trial Block Trials (Here 'EndTime' is used? or another variable?)
+# --------------------------------------------------------------
+## (A) Linear Regression
+lm_total <- lm(PercentCorrect ~ EndTime, data = data)
+summary(lm_total)
+
+## (B) Polynomial (2nd Order)
+lm_total_poly <- lm(PercentCorrect ~ poly(EndTime, 2), data = data)
+summary(lm_total_poly)
+
+## (C) Graphs for Total 10 Trial Block Trials
+
+# Scatterplot with Linear Regression
+ggplot(data, aes(x = EndTime, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Percent Correct vs. Total 10 Trial Block Trials (Linear Fit)",
+       x = "Total 10 Trial Block Trials",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Scatterplot with 2nd Order Polynomial Fit
+ggplot(data, aes(x = EndTime, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "red") +
+  labs(title = "Percent Correct vs. Total 10 Trial Block Trials (2nd Order Polynomial Fit)",
+       x = "Total 10 Trial Block Trials",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+# 4. OPTIONAL Non-Linear Model Example
+# --------------------------------------
+
+# Suppose you fit a saturating function with nls:
+nls_right <- nls(
+  PercentCorrect ~ Asym * (1 - exp(-k * RightITITouches)),
+  data = data,
+  start = list(Asym = max(data$PercentCorrect, na.rm = TRUE), k = 0.01)
+)
+summary(nls_right)
+
+# Generate a new data frame for predicted values
+new_right <- data.frame(
+  RightITITouches = seq(min(data$RightITITouches, na.rm = TRUE),
+                        max(data$RightITITouches, na.rm = TRUE),
+                        length.out = 200)
+)
+new_right$PercentCorrect_pred <- predict(nls_right, newdata = new_right)
+
+ggplot(data, aes(x = RightITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_line(data = new_right, aes(x = RightITITouches, y = PercentCorrect_pred),
+            color = "green", size = 1.2) +
+  labs(title = "Non-Linear Fit: Percent Correct vs. Right ITI Touches",
+       x = "Right ITI Touches",
+       y = "Percent Correct") +
+  theme_minimal() +
+  facet_wrap(~ Sex) +
+  scale_color_manual(values = geno_colors)
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+
+```{r Regression PI only}
+
+
+
+# Load required packages (install any that are missing)
+library(ggplot2)
+
+# Subset the data to only include observations from Day 8 and onwards.
+data_day8 <- subset(data, Day >= 8)
+
+# ------------------------------------------------------------------------------
+# 2. ANALYSIS: RIGHT ITI TOUCHES AND PERCENT CORRECT (Day >= 8)
+# ------------------------------------------------------------------------------
+
+## (A) Linear Regression
+lm_right <- lm(PercentCorrect ~ RightITITouches, data = data_day8)
+summary(lm_right)
+# Interpretation: The coefficient for RightITITouches tells you how much PercentCorrect changes 
+# for a one-unit increase in RightITITouches (for days 8+).
+
+## (B) Non-Linear Regression (Polynomial Fit)
+lm_right_poly <- lm(PercentCorrect ~ poly(RightITITouches, 2), data = data_day8)
+summary(lm_right_poly)
+# Here we use a second-order polynomial to allow for curvature in the relationship.
+
+## (C) Graphs for Right ITI Touches
+
+# Scatterplot with Linear Regression Line
+ggplot(data_day8, aes(x = RightITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Percent Correct vs. Right ITI Touches (Linear Fit, Day ≥ 8)",
+       x = "Right ITI Touches",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Scatterplot with Polynomial (2nd Order) Fit
+ggplot(data_day8, aes(x = RightITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "red") +
+  labs(title = "Percent Correct vs. Right ITI Touches (2nd Order Polynomial Fit, Day ≥ 8)",
+       x = "Right ITI Touches",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+# ------------------------------------------------------------------------------
+# 3. ANALYSIS: LEFT ITI TOUCHES AND PERCENT CORRECT (Day ≥ 8)
+# ------------------------------------------------------------------------------
+
+## (A) Linear Regression
+lm_left <- lm(PercentCorrect ~ LeftITITouches, data = data_day8)
+summary(lm_left)
+
+## (B) Non-Linear Regression (Polynomial Fit)
+lm_left_poly <- lm(PercentCorrect ~ poly(LeftITITouches, 2), data = data_day8)
+summary(lm_left_poly)
+
+## (C) Graphs for Left ITI Touches
+
+# Scatterplot with Linear Regression Line
+ggplot(data_day8, aes(x = LeftITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Percent Correct vs. Left ITI Touches (Linear Fit, Day ≥ 8)",
+       x = "Left ITI Touches",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Scatterplot with Polynomial (2nd Order) Fit
+ggplot(data_day8, aes(x = LeftITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "red") +
+  labs(title = "Percent Correct vs. Left ITI Touches (2nd Order Polynomial Fit, Day ≥ 8)",
+       x = "Left ITI Touches",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+# ------------------------------------------------------------------------------
+# 4. ANALYSIS: TOTAL 10 TRIAL BLOCK TRIALS AND PERCENT CORRECT (Day ≥ 8)
+# ------------------------------------------------------------------------------
+
+## (A) Linear Regression
+lm_total <- lm(PercentCorrect ~ EndTime, data = data_day8)
+summary(lm_total)
+# Interpretation: The coefficient indicates how PercentCorrect changes for each additional trial 
+# in the block (for days 8+).
+
+## (B) Non-Linear Regression (Polynomial Fit)
+lm_total_poly <- lm(PercentCorrect ~ poly(EndTime, 2), data = data_day8)
+summary(lm_total_poly)
+
+## (C) Graphs for Total 10 Trial Block Trials
+
+# Scatterplot with Linear Regression Line
+ggplot(data_day8, aes(x = EndTime, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Percent Correct vs. End Time (Linear Fit, Day ≥ 8)",
+       x = "End Time",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Scatterplot with Polynomial (2nd Order) Fit
+ggplot(data_day8, aes(x = EndTime, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "red") +
+  labs(title = "Percent Correct vs. End Time (2nd Order Polynomial Fit, Day ≥ 8)",
+       x = "End Time",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+# ------------------------------------------------------------------------------
+# 5. OPTIONAL: NON-LINEAR MODEL USING nls() FOR RIGHT ITI TOUCHES (Day ≥ 8)
+# ------------------------------------------------------------------------------
+
+# If you hypothesize a saturating effect (e.g., PercentCorrect approaches an asymptote as touches increase),
+# you can try fitting a non-linear model. Adjust the starting values based on your data’s range.
+nls_right <- nls(PercentCorrect ~ Asym * (1 - exp(-k * RightITITouches)),
+                 data = data_day8,
+                 start = list(Asym = max(data_day8$PercentCorrect, na.rm = TRUE), k = 0.01))
+summary(nls_right)
+
+# Create a sequence of Right ITI Touches for predictions:
+new_right <- data.frame(RightITITouches = seq(min(data_day8$RightITITouches, na.rm = TRUE),
+                                              max(data_day8$RightITITouches, na.rm = TRUE),
+                                              length.out = 200))
+new_right$PercentCorrect_pred <- predict(nls_right, newdata = new_right)
+
+# Plot the fitted non-linear curve with facet_wrap by Sex
+ggplot(data_day8, aes(x = RightITITouches, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.6) +
+  geom_line(data = new_right, aes(x = RightITITouches, y = PercentCorrect_pred), 
+            color = "green", size = 1.2) +
+  labs(title = "Non-Linear Fit: Percent Correct vs. Right ITI Touches (Day ≥ 8)",
+       x = "Right ITI Touches",
+       y = "Percent Correct") +
+  facet_wrap(~ Sex) +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+
+
+
+
+
+
+
+
+
+```
+
+
+```{r poly reg graphs}
+
+
+
+library(ggplot2)
+library(dplyr)
+
+# Create a prediction grid for TrialsCompleted
+pred_data_trials <- expand.grid(
+  Day = seq(min(data$Day, na.rm = TRUE), max(data$Day, na.rm = TRUE), length.out = 100),
+  Genotype = levels(data$Genotype),
+  Sex = levels(data$Sex)
+)
+
+# Generate predicted TrialsCompleted using the polynomial model
+pred_data_trials$TrialsCompleted <- predict(lm_trials_poly, newdata = pred_data_trials)
+
+# Plot the raw data and overlay the fitted polynomial regression curves
+ggplot(data, aes(x = Day, y = TrialsCompleted, color = Genotype)) +
+  geom_point(alpha = 0.4) +
+  geom_line(data = pred_data_trials, aes(x = Day, y = TrialsCompleted, color = Genotype), size = 1) +
+  facet_wrap(~ Sex) +
+  labs(title = "Polynomial Regression for Trials Completed",
+       x = "Day",
+       y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+
+# Create a prediction grid for PercentCorrect
+pred_data_percent <- expand.grid(
+  Day = seq(min(data$Day, na.rm = TRUE), max(data$Day, na.rm = TRUE), length.out = 100),
+  Genotype = levels(data$Genotype),
+  Sex = levels(data$Sex)
+)
+
+# Generate predicted PercentCorrect using the polynomial model
+pred_data_percent$PercentCorrect <- predict(lm_percent_poly, newdata = pred_data_percent)
+
+# Plot the raw data and overlay the fitted polynomial regression curves
+ggplot(data, aes(x = Day, y = PercentCorrect, color = Genotype)) +
+  geom_point(alpha = 0.4) +
+  geom_line(data = pred_data_percent, aes(x = Day, y = PercentCorrect, color = Genotype), size = 1) +
+  facet_wrap(~ Sex) +
+  labs(title = "Polynomial Regression for Percent Correct",
+       x = "Day",
+       y = "Percent Correct") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+
+
+## (A) Linear Regression
+lm_total <- lm(EndTime ~ TrialsCompleted, data = data)
+summary(lm_total)
+# Interpretation: The coefficient indicates how PercentCorrect changes for each additional trial in the block.
+
+## (B) Non-Linear Regression (Polynomial Fit)
+lm_total_poly <- lm(EndTime ~ poly(TrialsCompleted, 2), data = data)
+summary(lm_total_poly)
+
+
+
+
+library(ggplot2)
+library(dplyr)
+
+# Assuming your data frame "data" already has numeric variables "TrialsCompleted" and "EndTime"
+
+# Fit the polynomial (quadratic) model:
+lm_totalTrials_poly <- lm(EndTime ~ poly(TrialsCompleted, 2), data = data)
+summary(lm_totalTrials_poly)
+
+# Create a prediction grid for TrialsCompleted values:
+pred_data_totalTrials <- data.frame(
+  TrialsCompleted = seq(min(data$TrialsCompleted, na.rm = TRUE),
+                        max(data$TrialsCompleted, na.rm = TRUE),
+                        length.out = 100)
+)
+
+# Get predicted values from the polynomial model:
+pred_data_totalTrials$EndTime <- predict(lm_totalTrials_poly, newdata = pred_data_totalTrials)
+
+# Plot the raw data and the fitted quadratic regression curve:
+ggplot(data, aes(x = TrialsCompleted, y = EndTime, color = Genotype)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = pred_data_totalTrials, aes(x = TrialsCompleted, y = EndTime),
+            color = "blue", size = 1.5) +
+  labs(title = "Polynomial Regression: EndTime vs. TrialsCompleted",
+       x = "Trials Completed",
+       y = "Total Trials Block") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+
+
+# Fit the linear model:
+lm_trialsCompleted_linear <- lm(TrialsCompleted ~ EndTime, data = data)
+summary(lm_trialsCompleted_linear)
+
+# Create prediction data for EndTime:
+pred_data_trialsCompleted_linear <- data.frame(
+  EndTime = seq(min(data$EndTime, na.rm = TRUE),
+                         max(data$EndTime, na.rm = TRUE),
+                         length.out = 100)
+)
+
+# Predict TrialsCompleted using the linear model:
+pred_data_trialsCompleted_linear$TrialsCompleted <- predict(lm_trialsCompleted_linear,
+                                                              newdata = pred_data_trialsCompleted_linear)
+
+# Plot the raw data and the linear regression line:
+ggplot(data, aes(x = EndTime, y = TrialsCompleted, color = Genotype)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = pred_data_trialsCompleted_linear, aes(x = EndTime, y = TrialsCompleted),
+            color = "red", size = 1.5) +
+  labs(title = "Linear Regression: TrialsCompleted vs. EndTime",
+       x = "Total Trials Block",
+       y = "Trials Completed") +
+  theme_minimal() +
+  scale_color_manual(values = geno_colors)
+
+# Fit the linear model:
+lm_trialsCompleted_linear <- lm(TrialsCompleted ~ EndTime, data = data)
+summary(lm_trialsCompleted_linear)
+
+# Create prediction data for EndTime:
+pred_data_trialsCompleted_linear <- data.frame(
+  EndTime = seq(min(data$EndTime, na.rm = TRUE),
+                         max(data$EndTime, na.rm = TRUE),
+                         length.out = 100)
+)
+
+# Predict TrialsCompleted using the linear model:
+pred_data_trialsCompleted_linear$TrialsCompleted <- predict(lm_trialsCompleted_linear,
+                                                              newdata = pred_data_trialsCompleted_linear)
+
+# Plot the raw data and the linear regression line:
+ggplot(data, aes(x = EndTime, y = TrialsCompleted)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = pred_data_trialsCompleted_linear, aes(x = EndTime, y = TrialsCompleted),
+            color = "red", size = 1.5) +
+  labs(title = "Linear Regression: TrialsCompleted vs. EndTime",
+       x = "Total Trials Block",
+       y = "Trials Completed") +
+  theme_minimal()
+
+
+
+# Fit the quadratic (polynomial) model:
+lm_trialsCompleted_poly <- lm(TrialsCompleted ~ poly(EndTime, 2), data = data)
+summary(lm_trialsCompleted_poly)
+
+# Create prediction grid for EndTime:
+pred_data_trialsCompleted_poly <- data.frame(
+  EndTime = seq(min(data$EndTime, na.rm = TRUE),
+                         max(data$EndTime, na.rm = TRUE),
+                         length.out = 100)
+)
+
+# Predict TrialsCompleted using the polynomial model:
+pred_data_trialsCompleted_poly$TrialsCompleted <- predict(lm_trialsCompleted_poly,
+                                                          newdata = pred_data_trialsCompleted_poly)
+
+# Plot the raw data and the quadratic regression curve:
+ggplot(data, aes(x = EndTime, y = TrialsCompleted)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = pred_data_trialsCompleted_poly, aes(x = EndTime, y = TrialsCompleted),
+            color = "darkgreen", size = 1.5) +
+  labs(title = "Polynomial Regression: TrialsCompleted vs. Total Time",
+       x = "Total time",
+       y = "Trials Completed") +
+  theme_minimal()
+
+
+
+
+
+
+
+```
+
+
+```{r}
+
+
+# Load necessary libraries
+library(dplyr)
+library(lubridate)
+
+# Sample data (replace this with your actual data)
+data <- readxl::read_excel("H:/My Documents/Post Bacc. Data/cPlexin co3/cPlexin_co3_ TEST 2.4.25 (2).xlsx")  # Replace with your file path
+
+# Add the lookup table for Sex and Genotype
+lookup_table <- data.frame(
+  ID = c(442, 443, 444, 449, 437, 438, 450, 451, 428, 429, 430, 431, 432, 413, 414, 410, 419, 420, 423, 401, 404, 408, 409, 390, 439, 440, 441, 445, 446, 452, 453, 454),
+  Genotype = c("+", "+", "+/-", "-", "-", "+", "+", "+", "-", "+", "+/-", "+", "+", "+/-", "+/-", "+/-", "+", "+", "+/-", "+", "-", "-", "+", "-", "+/-", "+/-", "+/-", "+/-", "+/-", "+", "-", "-"),
+  Sex = c("F", "F", "F", "F", "F", "F", "F", "F", "F", "F", "F", "F", "F", "F", "F", "F", "M", "M", "M", "M", "M", "M", "M", "F", "M", "M", "M", "M", "M", "M", "M", "M")
+)
+
+# Convert Schedule run date to Date-Time format
+data$`Schedule run date` <- as.POSIXct(data$`Schedule run date`, format = "%Y-%m-%d %H:%M:%S")
+
+
+# Sort data by Animal ID and Schedule run date
+data <- data %>%
+  arrange(`Animal ID`, `Schedule run date`)
+
+# Add Day column (sequential numbering for each Animal ID)
+data <- data %>%
+  group_by(`Animal ID`) %>%
+  mutate(Day = row_number()) %>%
+  ungroup()
+
+# Add Sex and Genotype columns using the lookup table
+data <- data %>%
+  left_join(lookup_table, by = c("Animal ID" = "ID"))
+
+# Arrange the final data by Animal ID and Day
+final_data <- data %>%
+  arrange(`Animal ID`, Day)
+
+# View the final data
+print(final_data)
+
+# Save the final data to a new CSV file (optional)
+write.csv(final_data, "processed_data.csv", row.names = FALSE)
+
+
+
+```
+
+
+
+
+
+
+
+```{r}
+
+# -------------------------------
+# 1. Load Required Packages
+# -------------------------------
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ggpmisc)  # For regression equation annotations if desired
+
+# -------------------------------
+# 2. Data Import and Cleaning
+# -------------------------------
+
+# Read the Excel file (adjust the file path if needed)
+data <- readxl::read_excel("H:/My Documents/Post Bacc. Data/cPlexin co3/Latency data.xlsx")
+
+# Clean column names: remove spaces/special characters.
+names(data) <- gsub("[^[:alnum:]]", "", names(data))
+# For example, after cleaning, "% Correct" may become "Correct". We'll rename it to "PercentCorrect".
+colnames(data)[colnames(data) == "Correct"] <- "PercentCorrect"
+
+# Rename other columns for clarity (if needed):
+colnames(data)[colnames(data) == "AnimalID"] <- "AnimalID"  # Already fine
+colnames(data)[colnames(data) == "CorrectTouchLatencyAverage"] <- "CorrectTouchLatencyAverage"
+colnames(data)[colnames(data) == "Correcttouchlatencysum"] <- "CorrectTouchLatencySum"
+colnames(data)[colnames(data) == "CorrectRewardCollection"] <- "CorrectRewardCollection"
+colnames(data)[colnames(data) == "CorrectRewardCollectionLatencyAverage"] <- "CorrectRewardCollectionLatencyAverage"
+# (Other columns such as TrialsCompleted, LeftITITouches, RightITITouches, Day, Genotype, and Sex should be okay.
+
+# Convert variables to appropriate types
+data <- data %>%
+  mutate(
+    AnimalID = as.factor(AnimalID),
+    PercentCorrect = as.numeric(PercentCorrect),
+    CorrectTouchLatencyAverage = as.numeric(CorrectTouchLatencyAverage),
+    CorrectTouchLatencySum = as.numeric(CorrectTouchLatencySum),
+    CorrectRewardCollection = as.numeric(CorrectRewardCollection),
+    CorrectRewardCollectionLatencyAverage = as.numeric(CorrectRewardCollectionLatencyAverage),
+    TrialsCompleted = as.numeric(TrialsCompleted),
+    Day = as.numeric(Day),
+    Genotype = as.factor(Genotype),
+    Sex = as.factor(Sex)
+  )
+
+
+
+# -------------------------------
+# 3. Recode Genotype Levels and Define Colors
+# -------------------------------
+# Our goal is to change:
+#   original "+"  --> "-/-" 
+#   original "+/-" remains as "+/-"
+#   original "-"  --> "+/+"
+data$Genotype <- factor(data$Genotype, levels = c("+", "+/-", "-"))
+levels(data$Genotype) <- c("-/-", "+/-", "+/+")
+
+# Define a color mapping:
+#   "-/-" (originally +) will be green,
+#   "+/-" remains blue,
+#   "+/+" (originally -) will be red.
+
+# Define color mapping for Genotype:
+geno_colors <- c("+/+" = "blue", "+/-" = "yellow", "-/-" = "magenta")
+
+
+
+
+# -------------------------------
+# 4. Analyses & Graphs
+# -------------------------------
+# 4.1. Regression of % Correct by Correct Touch Latency Measures
+
+## (a) % Correct ~ CorrectTouchLatencyAverage
+# Linear model:
+lm_pct_latency_linear <- lm(PercentCorrect ~ CorrectTouchLatencyAverage, data = data)
+summary(lm_pct_latency_linear)
+
+# Quadratic (polynomial) model:
+lm_pct_latency_poly <- lm(PercentCorrect ~ poly(CorrectTouchLatencyAverage, 2), data = data)
+summary(lm_pct_latency_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectTouchLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Touch Latency (Avg)",
+       x = "Correct Touch Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial (quadratic) fit:
+ggplot(data, aes(x = CorrectTouchLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Correct Touch Latency (Avg)",
+       x = "Correct Touch Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+## (b) % Correct ~ CorrectTouchLatencySum
+# Linear model:
+lm_pct_latencySum_linear <- lm(PercentCorrect ~ CorrectTouchLatencySum, data = data)
+summary(lm_pct_latencySum_linear)
+
+# Quadratic model:
+lm_pct_latencySum_poly <- lm(PercentCorrect ~ poly(CorrectTouchLatencySum, 2), data = data)
+summary(lm_pct_latencySum_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectTouchLatencySum, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Touch Latency Sum",
+       x = "Correct Touch Latency Sum",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = CorrectTouchLatencySum, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Correct Touch Latency Sum",
+       x = "Correct Touch Latency Sum",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+# 4.2. Regression of % Correct by Genotype and Sex
+lm_pct_geno_sex <- lm(PercentCorrect ~ Genotype * Sex, data = data)
+summary(lm_pct_geno_sex)
+
+# For visualization, we use boxplots (with jitter):
+ggplot(data, aes(x = Genotype, y = PercentCorrect, fill = Genotype, shape = Sex)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Genotype), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "% Correct by Genotype and Sex",
+       x = "Genotype",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+# 4.3. Regression of Correct Reward Collection by Genotype and Sex
+lm_correctReward <- lm(CorrectRewardCollection ~ Genotype * Sex, data = data)
+summary(lm_correctReward)
+
+ggplot(data, aes(x = Genotype, y = CorrectRewardCollection, fill = Genotype)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Genotype), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "Correct Reward Collection by Genotype and Sex",
+       x = "Genotype",
+       y = "Correct Reward Collection") +
+  theme_minimal()
+
+
+# 4.4. Regression of % Correct by Correct Reward Collection and its Latency
+
+## (a) % Correct ~ Correct Reward Collection
+lm_pct_reward_linear <- lm(PercentCorrect ~ CorrectRewardCollection, data = data)
+summary(lm_pct_reward_linear)
+
+lm_pct_reward_poly <- lm(PercentCorrect ~ poly(CorrectRewardCollection, 2), data = data)
+summary(lm_pct_reward_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Reward Collection",
+       x = "Correct Reward Collection",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Correct Reward Collection",
+       x = "Correct Reward Collection",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+## (b) % Correct ~ Correct Reward Collection Latency Average
+lm_pct_rewardLat_linear <- lm(PercentCorrect ~ CorrectRewardCollectionLatencyAverage, data = data)
+summary(lm_pct_rewardLat_linear)
+
+lm_pct_rewardLat_poly <- lm(PercentCorrect ~ poly(CorrectRewardCollectionLatencyAverage, 2), data = data)
+summary(lm_pct_rewardLat_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectRewardCollectionLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Reward Collection Latency (Avg)",
+       x = "Correct Reward Collection Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = CorrectRewardCollectionLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Reward Collection Latency (Avg)",
+       x = "Correct Reward Collection Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+
+```
+
+
+
+```{r}
+
+# -------------------------------
+# 2. Data Import and Cleaning
+# -------------------------------
+
+# ... [previous code to read and clean data] ...
+
+# Convert variables to appropriate types
+data <- data %>%
+  mutate(
+    AnimalID = as.factor(AnimalID),
+    PercentCorrect = as.numeric(PercentCorrect),
+    CorrectTouchLatencyAverage = as.numeric(CorrectTouchLatencyAverage),
+    CorrectTouchLatencySum = as.numeric(CorrectTouchLatencySum),
+    CorrectRewardCollection = as.numeric(CorrectRewardCollection),
+    CorrectRewardCollectionLatencyAverage = as.numeric(CorrectRewardCollectionLatencyAverage),
+    TrialsCompleted = as.numeric(TrialsCompleted),
+    Day = as.numeric(Day),
+    Genotype = as.factor(Genotype),
+    Sex = as.factor(Sex)
+  )
+
+# FILTER DATA TO INCLUDE ONLY SPECIFIED SCHEDULES
+data <- data %>%
+  filter(Schedulename %in% c("A_Mouse LD 1 choice v2", "A_Mouse LD Punish Incorrect Training v2"))
+
+data$Genotype <- factor(data$Genotype, levels = c("+", "+/-", "-"))
+levels(data$Genotype) <- c("-/-", "+/-", "+/+")
+
+# Define a color mapping:
+#   "-/-" (originally +) will be green,
+#   "+/-" remains blue,
+#   "+/+" (originally -) will be red.
+
+# Define color mapping for Genotype:
+geno_colors <- c("+/+" = "blue", "+/-" = "yellow", "-/-" = "magenta")
+
+
+
+
+# -------------------------------
+# 4. Analyses & Graphs
+# -------------------------------
+# 4.1. Regression of % Correct by Correct Touch Latency Measures
+
+## (a) % Correct ~ CorrectTouchLatencyAverage
+# Linear model:
+lm_pct_latency_linear <- lm(PercentCorrect ~ CorrectTouchLatencyAverage, data = data)
+summary(lm_pct_latency_linear)
+
+# Quadratic (polynomial) model:
+lm_pct_latency_poly <- lm(PercentCorrect ~ poly(CorrectTouchLatencyAverage, 2), data = data)
+summary(lm_pct_latency_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectTouchLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Touch Latency (Avg)",
+       x = "Correct Touch Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial (quadratic) fit:
+ggplot(data, aes(x = CorrectTouchLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Correct Touch Latency (Avg)",
+       x = "Correct Touch Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+## (b) % Correct ~ CorrectTouchLatencySum
+# Linear model:
+lm_pct_latencySum_linear <- lm(PercentCorrect ~ CorrectTouchLatencySum, data = data)
+summary(lm_pct_latencySum_linear)
+
+# Quadratic model:
+lm_pct_latencySum_poly <- lm(PercentCorrect ~ poly(CorrectTouchLatencySum, 2), data = data)
+summary(lm_pct_latencySum_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectTouchLatencySum, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Touch Latency Sum",
+       x = "Correct Touch Latency Sum",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = CorrectTouchLatencySum, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Correct Touch Latency Sum",
+       x = "Correct Touch Latency Sum",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+# 4.2. Regression of % Correct by Genotype and Sex
+lm_pct_geno_sex <- lm(PercentCorrect ~ Genotype * Sex, data = data)
+summary(lm_pct_geno_sex)
+
+# For visualization, we use boxplots (with jitter):
+ggplot(data, aes(x = Genotype, y = PercentCorrect, fill = Genotype)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Genotype), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "% Correct by Genotype and Sex",
+       x = "Genotype",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+# 4.3. Regression of Correct Reward Collection by Genotype and Sex
+lm_correctReward <- lm(CorrectRewardCollection ~ Genotype * Sex, data = data)
+summary(lm_correctReward)
+
+ggplot(data, aes(x = Genotype, y = CorrectRewardCollection, fill = Genotype)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Genotype), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "Correct Reward Collection by Genotype and Sex",
+       x = "Genotype",
+       y = "Correct Reward Collection") +
+  theme_minimal()
+
+
+
+
+# 4.3. Regression of Correct Reward Collection by Genotype and Sex
+lm_correctReward <- lm(BlankTouchLatency ~ Genotype * Sex, data = data)
+summary(lm_correctReward)
+
+ggplot(data, aes(x = Genotype, y = BlankTouchLatency, fill = Genotype)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(aes(color = Genotype), width = 0.2, alpha = 0.6) +
+  scale_fill_manual(values = geno_colors) +
+  scale_color_manual(values = geno_colors) +
+  facet_wrap(~ Sex) +
+  labs(title = "Blank Touch Latency by Genotype and Sex",
+       x = "Genotype",
+       y = "Blank Touch Collection") +
+  theme_minimal()
+
+
+# 4.4. Regression of % Correct by Correct Reward Collection and its Latency
+
+## (a) % Correct ~ Correct Reward Collection
+lm_pct_reward_linear <- lm(PercentCorrect ~ CorrectRewardCollection, data = data)
+summary(lm_pct_reward_linear)
+
+lm_pct_reward_poly <- lm(PercentCorrect ~ poly(CorrectRewardCollection, 2), data = data)
+summary(lm_pct_reward_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Correct Reward Collection",
+       x = "Correct Reward Collection",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = CorrectRewardCollection, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Correct Reward Collection",
+       x = "Correct Reward Collection",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+## (b) % Correct ~ Correct Reward Collection Latency Average
+lm_pct_rewardLat_linear <- lm(PercentCorrect ~ CorrectRewardCollectionLatencyAverage, data = data)
+summary(lm_pct_rewardLat_linear)
+
+lm_pct_rewardLat_poly <- lm(PercentCorrect ~ poly(CorrectRewardCollectionLatencyAverage, 2), data = data)
+summary(lm_pct_rewardLat_poly)
+
+# Scatterplot with linear fit:
+ggplot(data, aes(x = CorrectRewardCollectionLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Linear Regression: % Correct vs. Reward Collection Latency (Avg)",
+       x = "Correct Reward Collection Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+# Scatterplot with polynomial fit:
+ggplot(data, aes(x = CorrectRewardCollectionLatencyAverage, y = PercentCorrect)) +
+  geom_point(aes(color = Genotype), alpha = 0.6) +
+  scale_color_manual(values = geno_colors) +
+  stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE, color = "black") +
+  labs(title = "Polynomial Regression: % Correct vs. Reward Collection Latency (Avg)",
+       x = "Correct Reward Collection Latency Average",
+       y = "Percent Correct") +
+  theme_minimal()
+
+
+```
+
+
+
+```{r Linear Mixed Model for Latency data}
+
+ #Model for PercentCorrect:
+model_pc <- lmer(PercentCorrect ~ Day + Genotype + Sex + (1 | AnimalID), data = data)
+summary(model_pc)
+# Interpretation: Look at the fixed effects for Genotype and Sex (and Trial) to see if they are significant.
+
+# Model for SessionTime:
+model_st <- lmer(EndTime ~ Day + Genotype + Sex + (1 | AnimalID), data = data)
+summary(model_st)
+# Interpretation: Assess whether SessionTime varies by Genotype and Sex while controlling for Trial.
+
+# QUESTION 2:
+# Do LeftITI and/or RightITI correlate with higher PercentCorrect scores?
+
+# Model with Left ITI touches:
+model_leftITI <- lmer(PercentCorrect ~ Day + LeftITITouches + (1 | AnimalID), data = data)
+summary(model_leftITI)
+
+# Model with Right ITI touches:
+model_rightITI <- lmer(PercentCorrect ~ Day + RightITITouches + (1 | AnimalID), data = data)
+summary(model_rightITI)
+
+# Combined model with both predictors:
+model_bothITI <- lmer(PercentCorrect ~ Day + LeftITITouches + RightITITouches + (1 | AnimalID), data = data)
+summary(model_bothITI)
+
+model_pc <- lmer(BlankTouchLatency ~ Day + Genotype + (1 | AnimalID), data = data)
+summary(model_pc)
+
+
+
+```
