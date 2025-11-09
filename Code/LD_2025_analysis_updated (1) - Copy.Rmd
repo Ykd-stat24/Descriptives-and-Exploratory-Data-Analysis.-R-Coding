@@ -1,16 +1,20 @@
 ---
-title: "Location Discrimination Analysis – LD 2025 dataset"
-author: "Generated via ChatGPT req. by Yashoda"
+title: "Location Discrimination Analysis – LD 2025 dataset"
+author: "Behavioral phenotyping update"
 date: "`r format(Sys.Date())`"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
 ---
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
-  echo       = TRUE,
-  warning    = FALSE,
-  message    = FALSE,
-  fig.align  = "center"
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center"
 )
 ```
 
